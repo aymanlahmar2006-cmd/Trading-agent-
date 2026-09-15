@@ -7,8 +7,10 @@
     { "symbol": "BINANCE:SOLUSDT", "enabled": true }
   ],
 
-  "timeframe": "15",
-  "bars_to_pull": 120,
+  "_timeframe_comment": "1h entries with 4h context. 15m was measured at 2.18R of cost per round trip on a quiet chart -- the stop is too tight to survive its own fees.",
+  "timeframe": "60",
+  "context_timeframe": "240",
+  "bars_to_pull": 150,
 
   "market_context": {
     "leader_symbol": "BINANCE:BTCUSDT",
@@ -34,5 +36,12 @@
   "filters": {
     "min_confidence_to_report": "medium",
     "long_only": true
+  },
+
+  "alerts": {
+    "_comment": "Credentials come from the environment (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID), never from this file.",
+    "channel": "auto",
+    "min_quality_for_new_setup": 60.0,
+    "stop_warn_pct": 25.0
   }
 }

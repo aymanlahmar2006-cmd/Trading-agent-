@@ -76,3 +76,103 @@ def test_cli_writes_json_and_logs(tmp_path, capsys, monkeypatch):
     assert json.loads(out_path.read_text(encoding="utf-8"))[0]["symbol"] == "BINANCE:TESTUSDT"
     assert (tmp_path / "logs" / "signals.jsonl").exists()
     assert (tmp_path / "logs" / "signals.csv").exists()
+
+
+def _run(monkeypatch, tmp_path, argv):
+    monkeypatch.chdir(tmp_path)
+    return main(argv)
+
+
+def test_open_records_a_fill_and_rejects_a_duplicate(tmp_path, monkeypatch, capsys):
+    args = ["open", "--symbol", "BINANCE:SOLUSDT", "--entry", "100", "--size", "10",
+            "--stop", "95", "--target", "115", "--config", str(CONFIG_PATH)]
+    assert _run(monkeypatch, tmp_path, args) == 0
+    assert (tmp_path / "journal" / "positions.json").exists()
+    capsys.readouterr()
+
+    assert _run(monkeypatch, tmp_path, args) == 1
+    assert "مفتوحة بالفعل" in capsys.readouterr().err
+
+
+def test_open_rejects_a_stop_above_entry(tmp_path, monkeypatch, capsys):
+    code = _run(monkeypatch, tmp_path,
+                ["open", "--symbol", "BINANCE:SOLUSDT", "--entry", "100",
+                 "--size", "10", "--stop", "105", "--config", str(CONFIG_PATH)])
+    assert code == 1
+    assert "at or above entry" in capsys.readouterr().err
+    assert not (tmp_path / "journal" / "positions.json").exists()
+
+
+def test_close_reports_the_result_in_r(tmp_path, monkeypatch, capsys):
+    _run(monkeypatch, tmp_path,
+         ["open", "--symbol", "BINANCE:SOLUSDT", "--entry", "100", "--size", "10",
+          "--stop", "95", "--config", str(CONFIG_PATH)])
+    capsys.readouterr()
+
+    assert _run(monkeypatch, tmp_path,
+                ["close", "--symbol", "SOLUSDT", "--price", "110"]) == 0
+    out = capsys.readouterr().out
+    assert "اتقفلت" in out and "R)" in out
+
+
+def test_close_without_an_open_position_fails(tmp_path, monkeypatch, capsys):
+    code = _run(monkeypatch, tmp_path,
+                ["close", "--symbol", "SOLUSDT", "--price", "110"])
+    assert code == 1
+    assert "مفيش صفقة مفتوحة" in capsys.readouterr().err
+
+
+def test_status_shows_live_r_and_realised_summary(tmp_path, monkeypatch, capsys):
+    _run(monkeypatch, tmp_path,
+         ["open", "--symbol", "BINANCE:SOLUSDT", "--entry", "100", "--size", "10",
+          "--stop", "95", "--config", str(CONFIG_PATH)])
+    capsys.readouterr()
+
+    assert _run(monkeypatch, tmp_path, ["status", "--price", "SOLUSDT=104"]) == 0
+    out = capsys.readouterr().out
+    assert "SOLUSDT" in out and "R" in out
+
+
+def test_status_rejects_a_malformed_price(tmp_path, monkeypatch, capsys):
+    assert _run(monkeypatch, tmp_path, ["status", "--price", "SOLUSDT"]) == 1
+    assert "صيغة غلط" in capsys.readouterr().err
+
+
+def test_watch_reports_regime_and_alerts_without_sending(tmp_path, monkeypatch, capsys):
+    bars = bars_from_path(BULLISH_PULLBACK)
+    studies = {"RSI": 56.0, "MACD": 1.2, "Signal": 0.7}
+    payload = [
+        make_snapshot(bars, bars[-1]["close"], studies, [126.0], "BINANCE:BTCUSDT"),
+        make_snapshot(bars, bars[-1]["close"], studies, [126.0], "BINANCE:SOLUSDT"),
+    ]
+    path = tmp_path / "multi.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    code = _run(monkeypatch, tmp_path,
+                ["watch", str(path), "--config", str(CONFIG_PATH), "--no-notify"])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "=== Market Context ===" in out
+    assert "Risk Sentiment" in out
+    assert "=== تنبيهات ===" in out
+    # A regime file is written so the next run can detect a flip.
+    assert (tmp_path / "journal" / "regime.json").exists()
+
+
+def test_watch_does_not_alert_on_a_symbol_already_held(tmp_path, monkeypatch, capsys):
+    bars = bars_from_path(BULLISH_PULLBACK)
+    studies = {"RSI": 56.0, "MACD": 1.2, "Signal": 0.7}
+    payload = [make_snapshot(bars, bars[-1]["close"], studies, [126.0], "BINANCE:SOLUSDT")]
+    path = tmp_path / "one.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _run(monkeypatch, tmp_path,
+         ["open", "--symbol", "BINANCE:SOLUSDT", "--entry", "100", "--size", "1",
+          "--stop", "95", "--config", str(CONFIG_PATH)])
+    capsys.readouterr()
+
+    _run(monkeypatch, tmp_path,
+         ["watch", str(path), "--config", str(CONFIG_PATH), "--no-notify"])
+    out = capsys.readouterr().out
+    assert "إعداد جديد" not in out, "a held symbol must not be pitched as a new idea"

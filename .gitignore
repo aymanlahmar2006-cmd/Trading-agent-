@@ -4,7 +4,11 @@ __pycache__/
 .venv/
 venv/
 
-# Runtime output: signal journal and collected snapshots are local data.
+# Runtime output. The journal holds real trade data and is private — this repo is public.
 logs/*
 !logs/.gitkeep
+journal/
 snapshots/
+
+# Never commit credentials.
+.env
