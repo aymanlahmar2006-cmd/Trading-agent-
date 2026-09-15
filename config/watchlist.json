@@ -1,0 +1,33 @@
+{
+  "_comment": "Edit this file to change what the agent watches. No code changes needed.",
+
+  "watchlist": [
+    { "symbol": "BINANCE:BTCUSDT", "enabled": true },
+    { "symbol": "BINANCE:ETHUSDT", "enabled": true },
+    { "symbol": "BINANCE:SOLUSDT", "enabled": true }
+  ],
+
+  "timeframe": "15",
+  "bars_to_pull": 120,
+
+  "market_context": {
+    "leader_symbol": "BINANCE:BTCUSDT",
+    "leader_timeframe": "240",
+    "dominance_symbol": "CRYPTOCAP:BTC.D",
+    "total_mcap_symbol": "CRYPTOCAP:TOTAL"
+  },
+
+  "risk": {
+    "min_risk_reward": 1.5,
+    "atr_period": 14,
+    "atr_stop_multiple": 1.5,
+    "max_entry_distance_atr": 1.0,
+    "min_stop_distance_atr": 0.6,
+    "pivot_lookback": 3
+  },
+
+  "filters": {
+    "min_confidence_to_report": "medium",
+    "long_only": true
+  }
+}

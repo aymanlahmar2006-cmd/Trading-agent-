@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Runtime output: signal journal and collected snapshots are local data.
+logs/*
+!logs/.gitkeep
+snapshots/
