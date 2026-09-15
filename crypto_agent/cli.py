@@ -26,6 +26,7 @@ from . import positions as pos
 from . import regime as rg
 from .alerts import collect
 from .formatting import fmt_price
+from .i18n import resolve, t
 from .journal import append_csv, append_jsonl
 from .notify import format_alerts, notify
 from .report import render_report
@@ -78,25 +79,26 @@ def _analyse_all(snapshot_path: Path, config: dict):
     return analyses, failures, prices, collected_at, raw_context
 
 
-def _print_failures(failures: list[str]) -> None:
+def _print_failures(failures: list[str], lang: str) -> None:
     if failures:
-        print("\n=== رموز فشل تحميلها ===")
+        print("\n" + t("load_failures", lang))
         for failure in failures:
             print(f"- {failure}")
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
+    lang = resolve(args.lang)
     config = load_config(Path(args.config))
     analyses, failures, _, _, raw_context = _analyse_all(Path(args.snapshot), config)
 
     if not analyses and failures:
-        print("لم يتم تحليل أي رمز. أخطاء البيانات:", file=sys.stderr)
+        print(t("no_symbol_analysed", lang), file=sys.stderr)
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         return 1
 
-    print(render_report(analyses, raw_context))
-    _print_failures(failures)
+    print(render_report(analyses, raw_context, lang=lang))
+    _print_failures(failures, lang)
 
     if args.json_out:
         out = Path(args.json_out)
@@ -116,6 +118,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 def cmd_watch(args: argparse.Namespace) -> int:
     """One full scan: analyse, assess the market, mark positions, alert."""
+    lang = resolve(args.lang)
     config = load_config(Path(args.config))
     alert_cfg = config.get("alerts", {})
     leader = config.get("market_context", {}).get("leader_symbol", "BINANCE:BTCUSDT")
@@ -124,7 +127,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
         Path(args.snapshot), config)
 
     if not analyses and failures:
-        print("لم يتم تحليل أي رمز. أخطاء البيانات:", file=sys.stderr)
+        print(t("no_symbol_analysed", lang), file=sys.stderr)
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         return 1
@@ -146,25 +149,33 @@ def cmd_watch(args: argparse.Namespace) -> int:
     if book:
         pos.save(book, JOURNAL)
 
-    alerts = collect(analyses, book, prices, previous, current,
-                     min_quality=float(alert_cfg.get("min_quality_for_new_setup", 60.0)))
+    min_quality = float(alert_cfg.get("min_quality_for_new_setup", 60.0))
+    stop_warn = float(alert_cfg.get("stop_warn_pct", 25.0))
 
-    print(render_report(analyses, current.to_context()))
-    _print_failures(failures)
+    # The console and the phone get different languages: Windows cannot render
+    # right-to-left text, Telegram can.
+    shown = collect(analyses, book, prices, previous, current,
+                    min_quality, stop_warn, lang=lang)
 
-    if alerts:
-        print("\n=== تنبيهات ===")
-        for alert in alerts:
+    print(render_report(analyses, current.to_context(lang), lang=lang))
+    _print_failures(failures, lang)
+
+    print("\n" + t("alerts_header", lang))
+    if shown:
+        for alert in shown:
             print(f"{alert.icon} {alert.title}\n   {alert.detail}")
     else:
-        print("\n=== تنبيهات ===\nلا جديد يستدعي التنبيه.")
+        print(t("no_alerts", lang))
 
     append_jsonl(analyses, Path("logs/signals.jsonl"))
     append_csv(analyses, Path("logs/signals.csv"))
     rg.save(current)
 
-    if alerts and not args.no_notify:
-        delivery = notify(format_alerts(alerts),
+    if shown and not args.no_notify:
+        message_lang = str(alert_cfg.get("language", "ar"))
+        to_send = collect(analyses, book, prices, previous, current,
+                          min_quality, stop_warn, lang=message_lang)
+        delivery = notify(format_alerts(to_send, message_lang),
                           channel=str(alert_cfg.get("channel", "auto")))
         status = "sent" if delivery.ok else "NOT sent"
         print(f"\n[{delivery.channel}] {status}"
@@ -174,14 +185,15 @@ def cmd_watch(args: argparse.Namespace) -> int:
 
 
 def cmd_open(args: argparse.Namespace) -> int:
+    lang = resolve(args.lang)
     config = load_config(Path(args.config))
     fee = float(config.get("risk", {}).get("fee_pct", 0.1))
     book = pos.load(JOURNAL)
 
     existing = pos.find_open(book, args.symbol)
     if existing:
-        print(f"في صفقة مفتوحة بالفعل على {args.symbol} ({existing.id}). "
-              "اقفلها الأول أو استخدم رمز مختلف.", file=sys.stderr)
+        print(t("already_open", lang, sym=args.symbol, id=existing.id),
+              file=sys.stderr)
         return 1
 
     try:
@@ -190,91 +202,99 @@ def cmd_open(args: argparse.Namespace) -> int:
             stop=args.stop, targets=args.target or [], fee_pct=fee,
             note=args.note or "", signal_ref=args.signal_ref or "")
     except pos.JournalError as exc:
-        print(f"الصفقة مترفضة: {exc}", file=sys.stderr)
+        print(t("rejected", lang, err=exc), file=sys.stderr)
         return 1
 
     pos.save(book, JOURNAL)
-    risk = position.total_risk
-    print(f"✅ اتسجلت: {position.id}")
-    print(f"   دخول {fmt_price(position.entry)} × {position.size} | "
-          f"ستوب {fmt_price(position.stop)}")
-    print(f"   المخاطرة {fmt_price(risk)} (= 1R) | رسوم الدخول "
-          f"{fmt_price(position.cost_basis() - position.entry * position.size)}")
-    if position.targets:
-        for target in position.targets:
-            r = position.r_at(target)
-            print(f"   هدف {fmt_price(target)} → {r:+.2f}R صافي" if r is not None
-                  else f"   هدف {fmt_price(target)}")
+    fee = position.cost_basis() - position.entry * position.size
+    print(f"{t('recorded', lang)}: {position.id}")
+    print(f"   {t('entry', lang)} {fmt_price(position.entry)} × {position.size} | "
+          f"{t('stop', lang)} {fmt_price(position.stop)}")
+    print(f"   {t('risk_1r', lang, risk=fmt_price(position.total_risk))} | "
+          f"{t('entry_fee', lang)} {fmt_price(fee)}")
+    for target in position.targets:
+        r_value = position.r_at(target)
+        line = f"   {t('target', lang)} {fmt_price(target)}"
+        if r_value is not None:
+            line += f" → {r_value:+.2f}R {t('net', lang)}"
+        print(line)
     return 0
 
 
 def cmd_close(args: argparse.Namespace) -> int:
+    lang = resolve(args.lang)
     book = pos.load(JOURNAL)
     position = pos.find_open(book, args.symbol)
     if position is None:
-        print(f"مفيش صفقة مفتوحة على {args.symbol}.", file=sys.stderr)
+        print(t("no_open_position", lang, sym=args.symbol), file=sys.stderr)
         return 1
 
     try:
         pos.close_position(position, args.price, note=args.note or "")
     except pos.JournalError as exc:
-        print(f"خطأ: {exc}", file=sys.stderr)
+        print(f"{t('error', lang)}: {exc}", file=sys.stderr)
         return 1
 
     pos.save(book, JOURNAL)
-    r = position.r_at(args.price)
-    pnl = position.pnl_at(args.price)
-    print(f"✅ اتقفلت: {position.id}")
-    print(f"   خروج {fmt_price(args.price)} | النتيجة {pnl:+.2f} "
-          + (f"({r:+.2f}R)" if r is not None else ""))
+    r_value = position.r_at(args.price)
+    print(f"{t('closed', lang)}: {position.id}")
+    print(f"   {t('exit', lang)} {fmt_price(args.price)} | "
+          f"{t('result', lang)} {position.pnl_at(args.price):+.2f}"
+          + (f" ({r_value:+.2f}R)" if r_value is not None else ""))
     mae, mfe = position.mae_r(), position.mfe_r()
     if mae is not None and mfe is not None:
-        print(f"   أقصى تراجع {mae:+.2f}R | أقصى ربح غير محقق {mfe:+.2f}R")
+        print(f"   {t('max_adverse', lang)} {mae:+.2f}R | "
+              f"{t('max_favourable', lang)} {mfe:+.2f}R")
     return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
+    lang = resolve(args.lang)
     book = pos.load(JOURNAL)
     prices: dict[str, float] = {}
     for item in args.price or []:
         if "=" not in item:
-            print(f"صيغة غلط: {item} — المفروض SYMBOL=PRICE", file=sys.stderr)
+            print(t("bad_price_format", lang, item=item), file=sys.stderr)
             return 1
         symbol, value = item.split("=", 1)
         prices[symbol.split(":")[-1]] = float(value)
 
     open_positions = [p for p in book if p.status == "open"]
-    print("=== صفقات مفتوحة ===")
+    print(t("open_positions", lang))
     if not open_positions:
-        print("لا شيء.")
+        print(t("nothing", lang))
     for position in open_positions:
         short = position.symbol.split(":")[-1]
         price = prices.get(short)
-        line = (f"- {short} [{position.id}] دخول {fmt_price(position.entry)} × "
-                f"{position.size} | ستوب {fmt_price(position.stop)}")
+        line = (f"- {short} [{position.id}] {t('entry', lang)} "
+                f"{fmt_price(position.entry)} × {position.size} | "
+                f"{t('stop', lang)} {fmt_price(position.stop)}")
         if price is not None:
-            r = position.r_at(price)
-            line += f" | السعر {fmt_price(price)}"
-            if r is not None:
-                line += f" → {r:+.2f}R"
+            r_value = position.r_at(price)
+            line += f" | {t('price_now', lang)} {fmt_price(price)}"
+            if r_value is not None:
+                line += f" → {r_value:+.2f}R"
         else:
-            line += " | (مفيش سعر لحظي — مرر --price)"
+            line += " | " + t("no_live_price", lang)
         print(line)
 
-    print("\n=== ملخص الصفقات المقفولة ===")
+    print("\n" + t("closed_summary", lang))
     summary = pos.summarise(book)
     if not summary["closed_trades"]:
-        print("لسه مفيش صفقات مقفولة.")
+        print(t("no_closed", lang))
         return 0
-    print(f"العدد: {summary['closed_trades']} | نسبة الربح: {summary['win_rate']}%")
-    print(f"التوقع: {summary['expectancy_r']}R لكل صفقة | الإجمالي: {summary['total_r']}R")
+    print(f"{t('count', lang)}: {summary['closed_trades']} | "
+          f"{t('win_rate', lang)}: {summary['win_rate']}%")
+    print(f"{t('expectancy', lang)}: {summary['expectancy_r']}R "
+          f"{t('per_trade', lang)} | {t('total', lang)}: {summary['total_r']}R")
     # No losing trade yet means profit factor is undefined, not infinite skill.
     pf = summary["profit_factor"]
-    pf_text = pf if pf is not None else "غير محسوب (مفيش صفقة خاسرة لسه)"
-    print(f"Profit factor: {pf_text} | صافي: {summary['total_pnl']}")
-    print(f"أفضل: {summary['best_r']}R | أسوأ: {summary['worst_r']}R")
+    pf_text = pf if pf is not None else t("pf_undefined", lang)
+    print(f"Profit factor: {pf_text} | {t('net', lang)}: {summary['total_pnl']}")
+    print(f"{t('best', lang)}: {summary['best_r']}R | "
+          f"{t('worst', lang)}: {summary['worst_r']}R")
     if summary["expectancy_r"] is not None and summary["expectancy_r"] <= 0:
-        print("\n⚠ التوقع سالب — الإشارات دي مش رابحة على بياناتك الفعلية حتى الآن.")
+        print(t("negative_expectancy", lang))
     return 0
 
 
@@ -321,6 +341,12 @@ def main(argv: list[str] | None = None) -> int:
     status.add_argument("--price", action="append",
                         help="SYMBOL=PRICE, repeatable")
     status.set_defaults(func=cmd_status)
+
+    for name, action in sub.choices.items():
+        action.add_argument(
+            "--lang", choices=["auto", "ar", "en"], default="auto",
+            help="Console language. 'auto' uses English on Windows, whose "
+                 "console cannot render right-to-left text.")
 
     args = parser.parse_args(argv)
     return args.func(args)

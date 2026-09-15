@@ -38,7 +38,35 @@ python -m crypto_agent open `
   --symbol BINANCE:SOLUSDT --entry 112.6 --size 10 --stop 108.2
 ```
 
-## 3. متغيرات البيئة
+## 3. العربي بيظهر بالمقلوب — ده طبيعي
+
+كونسول Windows (سواء PowerShell أو Windows Terminal) **مش بيدعم ترتيب الكتابة
+من اليمين لليسار**. فالعربي بيطلع معكوس والحروف مش متصلة:
+
+```
+يلاع :ةقثلا          ← المفروض: الثقة: عالي
+```
+
+**مش مشكلة في الكود.** الحل: الأيجنت **بيكتشف Windows تلقائياً ويطلع إنجليزي**.
+مش محتاج تعمل حاجة.
+
+لو عايز تجبره:
+
+```powershell
+python -m crypto_agent analyze examples\snapshot_pullback.example.json --lang en
+python -m crypto_agent watch snapshots\latest.json --lang ar   # لو بتستخدم طرفية بتدعم RTL
+```
+
+أو ثبّتها للجلسة كلها:
+
+```powershell
+$env:CRYPTO_AGENT_LANG = "en"
+```
+
+> **رسايل Telegram بتفضل بالعربي** مهما كان إعداد الكونسول — الموبايل بيعرض
+> العربي صح. لو عايز تغيّرها، `alerts.language` في `config/watchlist.json`.
+
+## 4. متغيرات البيئة
 
 `export` مش موجودة في PowerShell.
 
@@ -59,7 +87,7 @@ $env:TELEGRAM_BOT_TOKEN = "..."
 echo $env:TELEGRAM_BOT_TOKEN
 ```
 
-## 4. المسارات
+## 5. المسارات
 
 الكود بيستخدم `pathlib`، فالمسارات بتشتغل عادي على Windows. بس لو بتكتب مسار
 بنفسك في أمر، حطه بين علامتين تنصيص لو فيه مسافات:
@@ -68,7 +96,7 @@ echo $env:TELEGRAM_BOT_TOKEN
 python -m crypto_agent analyze "C:\Users\Splendid\Desktop\snap.json"
 ```
 
-## 5. أوامر شائعة — نسخة PowerShell
+## 6. أوامر شائعة — نسخة PowerShell
 
 ```powershell
 # اختبار

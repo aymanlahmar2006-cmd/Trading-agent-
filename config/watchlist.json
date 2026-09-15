@@ -41,6 +41,8 @@
   "alerts": {
     "_comment": "Credentials come from the environment (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID), never from this file.",
     "channel": "auto",
+    "_language_comment": "Telegram messages stay Arabic by default -- phones render right-to-left text correctly. The console language is separate and set with --lang.",
+    "language": "ar",
     "min_quality_for_new_setup": 60.0,
     "stop_warn_pct": 25.0
   }

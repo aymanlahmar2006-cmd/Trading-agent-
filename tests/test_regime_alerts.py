@@ -41,13 +41,15 @@ def test_btc_up_while_alts_lag_is_rotation_not_risk_on():
     others = [analysis(f"X{i}", "bearish") for i in range(4)]
     result = rg.assess(btc, others)
     assert result.sentiment == rg.MIXED
-    assert any("دوران نحو BTC" in note for note in result.notes)
+    # Notes are translation keys so the same regime renders in either language.
+    assert "rotation_into_btc" in result.notes
+    assert "BTC" in result.to_context("en")["notes"][0]
 
 
 def test_missing_btc_is_reported_not_assumed():
     result = rg.assess(None, [analysis("X", "bullish")])
     assert result.btc_trend == rg.UNKNOWN
-    assert any("BTC" in note for note in result.notes)
+    assert "btc_not_analysed" in result.notes
 
 
 def test_no_data_at_all_is_unknown():
@@ -127,3 +129,22 @@ def test_alerts_are_ordered_by_urgency():
     severities = [a.severity for a in found]
     assert severities == sorted(severities, key=lambda s: al.SEVERITY_ORDER[s])
     assert found[0].kind == "stop_breached", "money at risk outranks a new idea"
+
+
+def test_regime_context_renders_in_both_languages():
+    btc = analysis("BINANCE:BTCUSDT", "bullish")
+    result = rg.assess(btc, [analysis("X", "bullish")])
+    english = result.to_context("en")
+    arabic = result.to_context("ar")
+    assert "risk-on" in english["risk_sentiment"]
+    assert english["risk_sentiment"] != arabic["risk_sentiment"]
+    assert "bullish" in english["btc_trend"]
+
+
+def test_alerts_render_in_the_requested_language():
+    book = _open()
+    english = al.position_alerts(book, {"ETHUSDT": 94.0}, lang="en")
+    arabic = al.position_alerts(book, {"ETHUSDT": 94.0}, lang="ar")
+    assert english[0].kind == arabic[0].kind == "stop_breached"
+    assert english[0].title != arabic[0].title
+    assert "stop" in english[0].title.lower()

@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .i18n import t
+
 OUTBOX = Path("journal/outbox.log")
 TELEGRAM_API = "https://api.telegram.org"
 
@@ -100,14 +102,18 @@ def notify(text: str, channel: str = "auto",
     return Delivery(channel, False, f"unknown channel '{channel}'")
 
 
-def format_alerts(alerts: list[Any], header: str = "🔔 تنبيهات") -> str:
-    """Render alerts as a plain-text Telegram message."""
+def format_alerts(alerts: list[Any], lang: str = "ar") -> str:
+    """Render alerts as a plain-text Telegram message.
+
+    Defaults to Arabic: phone clients reorder right-to-left text correctly, so
+    the console's limitation does not apply here.
+    """
     if not alerts:
         return ""
-    lines = [header, ""]
+    lines = [t("alerts_telegram_header", lang), ""]
     for alert in alerts:
         lines.append(f"{alert.icon} {alert.title}")
         lines.append(f"   {alert.detail}")
         lines.append("")
-    lines.append("— إشارات فقط. لا تنفيذ تلقائي. —")
+    lines.append(t("safety_note", lang))
     return "\n".join(lines)

@@ -69,7 +69,15 @@ def test_format_alerts_is_empty_when_there_is_nothing_to_say():
 
 
 def test_format_alerts_includes_each_alert_and_the_safety_note():
+    from crypto_agent.i18n import t
     alerts = [Alert("k", "critical", "عنوان", "تفصيل", "BTCUSDT", "🔴")]
-    text = nt.format_alerts(alerts)
+    text = nt.format_alerts(alerts, lang="ar")
     assert "عنوان" in text and "تفصيل" in text
-    assert "لا تنفيذ تلقائي" in text
+    assert t("safety_note", "ar") in text
+
+
+def test_telegram_messages_stay_arabic_by_default():
+    """The console cannot render right-to-left text; a phone can."""
+    from crypto_agent.i18n import t
+    alerts = [Alert("k", "info", "title", "detail", "BTCUSDT", "🔵")]
+    assert t("safety_note", "ar") in nt.format_alerts(alerts)

@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .i18n import resolve, t
 from .signal import BEARISH, BULLISH, SymbolAnalysis
 
 STATE_FILE = Path("journal/regime.json")
@@ -22,12 +23,16 @@ RISK_OFF = "risk_off"
 MIXED = "mixed"
 UNKNOWN = "unknown"
 
-LABEL_AR = {
-    RISK_ON: "مُقبل على المخاطرة (risk-on)",
-    RISK_OFF: "متجنب للمخاطرة (risk-off)",
-    MIXED: "مختلط",
-    UNKNOWN: "غير معروف",
+SENTIMENT_KEY = {
+    RISK_ON: "risk_on",
+    RISK_OFF: "risk_off",
+    MIXED: "mixed",
+    UNKNOWN: "regime_unknown",
 }
+
+
+def label(sentiment: str, lang: str) -> str:
+    return t(SENTIMENT_KEY.get(sentiment, "regime_unknown"), lang)
 
 
 @dataclass
@@ -38,6 +43,7 @@ class Regime:
     breadth_bullish: int = 0
     breadth_total: int = 0
     dominance_note: str = ""
+    # Translation keys, resolved at render time -- see SENTIMENT_KEY above.
     notes: list[str] = field(default_factory=list)
     assessed_at: str = ""
 
@@ -50,18 +56,21 @@ class Regime:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-    def to_context(self) -> dict[str, Any]:
-        """Shape the report renderer expects."""
+    def to_context(self, lang: str = "auto") -> dict[str, Any]:
+        """Shape the report renderer expects, in the requested language."""
+        lang = resolve(lang)
         breadth = self.breadth_pct
-        notes = list(self.notes)
+        notes = [t(key, lang) for key in self.notes]
         if breadth is not None:
-            notes.append(
-                f"اتساع السوق: {self.breadth_bullish} من {self.breadth_total} "
-                f"رمز صاعد ({breadth:.0f}%)"
-            )
+            notes.append(t("breadth", lang, bullish=self.breadth_bullish,
+                           total=self.breadth_total, pct=breadth))
+        trend = t(self.btc_trend, lang) if self.btc_trend != UNKNOWN \
+            else t("unknown", lang)
+        strength = t(self.btc_strength, lang) if self.btc_strength != UNKNOWN \
+            else t("unknown", lang)
         return {
-            "btc_trend": f"{self.btc_trend} ({self.btc_strength})",
-            "risk_sentiment": LABEL_AR.get(self.sentiment, self.sentiment),
+            "btc_trend": f"{trend} ({strength})",
+            "risk_sentiment": label(self.sentiment, lang),
             "dominance_note": self.dominance_note,
             "notes": notes,
         }
@@ -85,9 +94,7 @@ def assess(btc: SymbolAnalysis | None, others: list[SymbolAnalysis],
         regime.btc_trend = btc.trend
         regime.btc_strength = btc.trend_strength
     else:
-        regime.notes.append(
-            "BTC لم يتم تحليله في هذه الجولة — تقييم السوق مبني على الاتساع فقط."
-        )
+        regime.notes.append("btc_not_analysed")
 
     breadth = regime.breadth_pct
 
@@ -98,9 +105,7 @@ def assess(btc: SymbolAnalysis | None, others: list[SymbolAnalysis],
     if breadth is None:
         # Only BTC available: report its trend but do not claim a market regime.
         regime.sentiment = MIXED
-        regime.notes.append(
-            "لا توجد رموز أخرى للمقارنة، فمفيش حكم على اتساع السوق."
-        )
+        regime.notes.append("no_peers")
         return regime
 
     btc_bullish = regime.btc_trend == BULLISH
@@ -112,15 +117,10 @@ def assess(btc: SymbolAnalysis | None, others: list[SymbolAnalysis],
         regime.sentiment = RISK_OFF
     elif btc_bullish and breadth < 40:
         regime.sentiment = MIXED
-        regime.notes.append(
-            "BTC صاعد لكن باقي السوق مش تابع — ده دوران نحو BTC، مش risk-on. "
-            "الألت كوينز أضعف من المعتاد في الوضع ده."
-        )
+        regime.notes.append("rotation_into_btc")
     elif btc_bearish and breadth > 60:
         regime.sentiment = MIXED
-        regime.notes.append(
-            "BTC هابط بينما الألت صاعدة — وضع غير مستقر، عادةً بيتحل لصالح BTC."
-        )
+        regime.notes.append("btc_down_alts_up")
     else:
         regime.sentiment = MIXED
 
@@ -144,11 +144,14 @@ def save(regime: Regime, path: Path = STATE_FILE) -> None:
                     encoding="utf-8")
 
 
-def describe_change(previous: Regime | None, current: Regime) -> str | None:
+def describe_change(previous: Regime | None, current: Regime,
+                    lang: str = "auto") -> str | None:
     """A one-line description of a regime flip, or None when nothing changed."""
     if previous is None or previous.sentiment == UNKNOWN:
         return None
     if previous.sentiment == current.sentiment:
         return None
-    return (f"حالة السوق اتغيرت من {LABEL_AR.get(previous.sentiment, previous.sentiment)} "
-            f"إلى {LABEL_AR.get(current.sentiment, current.sentiment)}")
+    lang = resolve(lang)
+    return t("regime_changed", lang,
+             before=label(previous.sentiment, lang),
+             after=label(current.sentiment, lang))

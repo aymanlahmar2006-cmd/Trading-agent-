@@ -1,75 +1,65 @@
-"""Render analyses into the agreed report layout."""
+"""Render analyses into the agreed report layout, in Arabic or English."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from .formatting import fmt_price
+from .i18n import resolve, t
 from .signal import SymbolAnalysis
-
-CONFIDENCE_AR = {"high": "عالي", "medium": "متوسط", "low": "منخفض"}
-TREND_AR = {"bullish": "صاعد", "bearish": "هابط", "neutral": "عرضي"}
-STRENGTH_AR = {
-    "strong": "قوي", "moderate": "متوسط", "weak": "ضعيف",
-    "sideways": "عرضي", "unknown": "غير محدد",
-}
 
 
 def _short_symbol(symbol: str) -> str:
     return symbol.split(":")[-1]
 
 
-def render_market_context(context: dict[str, Any]) -> str:
-    """Phase 2 layer. Until it is wired up this states that it is missing."""
-    lines = ["=== Market Context ==="]
+def render_market_context(context: dict[str, Any], lang: str) -> str:
+    lines = [t("market_context", lang)]
     if not context:
-        lines.append(
-            "غير متاح — طبقة تقييم السوق (المرحلة 2) لسه مش متوصلة. "
-            "التحليل تحت ده لرمز واحد فقط وبدون سياق BTC."
-        )
+        lines.append(t("context_unavailable", lang))
         return "\n".join(lines)
 
-    btc = context.get("btc_trend", "غير متاح")
-    sentiment = context.get("risk_sentiment", "غير متاح")
+    btc = context.get("btc_trend") or t("unknown", lang)
+    sentiment = context.get("risk_sentiment") or t("regime_unknown", lang)
     lines.append(f"BTC: {btc} | Risk Sentiment: {sentiment}")
     if context.get("dominance_note"):
         lines.append(f"BTC.D: {context['dominance_note']}")
-    if context.get("notes"):
-        lines.extend(f"  - {n}" for n in context["notes"])
+    for note in context.get("notes") or []:
+        lines.append(f"  - {note}")
     return "\n".join(lines)
 
 
-def render_opportunity(index: int, analysis: SymbolAnalysis) -> str:
+def render_opportunity(index: int, analysis: SymbolAnalysis, lang: str) -> str:
     plan = analysis.plan
     assert plan is not None, "render_opportunity requires an analysis with a plan"
 
-    trend = TREND_AR.get(analysis.trend, analysis.trend)
-    strength = STRENGTH_AR.get(analysis.trend_strength, analysis.trend_strength)
-    entry = (f"{fmt_price(plan.entry_low)}"
+    trend = t(analysis.trend, lang)
+    strength = t(analysis.trend_strength, lang)
+    entry = (fmt_price(plan.entry_low)
              if abs(plan.entry_high - plan.entry_low) < 1e-12
              else f"{fmt_price(plan.entry_low)} – {fmt_price(plan.entry_high)}")
 
     lines = [
         f"{index}. {_short_symbol(analysis.symbol)} — {trend} ({strength})",
-        f"   السعر الحالي: {fmt_price(analysis.price)} | "
-        f"ATR: {fmt_price(analysis.atr)} | جودة الإعداد: {analysis.quality_score}/100",
+        f"   {t('price_now', lang)}: {fmt_price(analysis.price)} | "
+        f"ATR: {fmt_price(analysis.atr)} | "
+        f"{t('setup_quality', lang)}: {analysis.quality_score}/100",
         f"   Entry: {entry} | Stop: {fmt_price(plan.stop)} | "
         f"Target: {fmt_price(plan.target)}",
-        f"   R:R: {plan.net_risk_reward:.2f} صافي "
-        f"({plan.risk_reward:.2f} قبل التكاليف — الرسوم والانزلاق "
-        f"بياخدوا {plan.cost_in_r:.2f}R)",
-        "   السبب:",
+        f"   R:R: {plan.net_risk_reward:.2f} {t('rr_net', lang)} "
+        f"({plan.risk_reward:.2f} {t('rr_gross_note', lang)} {plan.cost_in_r:.2f}R)",
+        f"   {t('reason', lang)}",
     ]
     lines.extend(f"     • {reason}" for reason in analysis.reasoning)
-    lines.append(f"   الثقة: {CONFIDENCE_AR.get(analysis.confidence, analysis.confidence)}")
+    lines.append(f"   {t('confidence', lang)}: {t(analysis.confidence, lang)}")
     if analysis.warnings:
-        lines.append("   ⚠ نواقص في البيانات:")
+        lines.append(f"   {t('data_gaps', lang)}")
         lines.extend(f"     • {w}" for w in analysis.warnings)
     return "\n".join(lines)
 
 
-def render_watching(analysis: SymbolAnalysis) -> str:
-    reason = analysis.rejected_reason or "لا توجد إشارة واضحة."
+def render_watching(analysis: SymbolAnalysis, lang: str) -> str:
+    reason = analysis.rejected_reason or t("no_clear_signal", lang)
     line = f"- {_short_symbol(analysis.symbol)}: {reason}"
     if analysis.warnings:
         line += "\n  ⚠ " + " | ".join(analysis.warnings)
@@ -77,7 +67,9 @@ def render_watching(analysis: SymbolAnalysis) -> str:
 
 
 def render_report(analyses: list[SymbolAnalysis],
-                  market_context: dict[str, Any] | None = None) -> str:
+                  market_context: dict[str, Any] | None = None,
+                  lang: str = "auto") -> str:
+    lang = resolve(lang)
     opportunities = [a for a in analyses if a.actionable and a.plan is not None]
     opportunities.sort(key=lambda a: a.quality_score, reverse=True)
     # Split by identity, not equality: SymbolAnalysis is a plain dataclass, so two
@@ -86,23 +78,23 @@ def render_report(analyses: list[SymbolAnalysis],
     promoted = {id(a) for a in opportunities}
     watching = [a for a in analyses if id(a) not in promoted]
 
-    blocks = [render_market_context(market_context or {}), ""]
+    blocks = [render_market_context(market_context or {}, lang), ""]
 
-    blocks.append("=== Top Opportunities ===")
+    blocks.append(t("top_opportunities", lang))
     if opportunities:
         for i, analysis in enumerate(opportunities, start=1):
-            blocks.append(render_opportunity(i, analysis))
+            blocks.append(render_opportunity(i, analysis, lang))
             blocks.append("")
     else:
-        blocks.append("لا توجد فرص مستوفية للشروط في هذه الجولة.")
+        blocks.append(t("no_opportunities", lang))
         blocks.append("")
 
-    blocks.append("=== Watching (لسه معندهاش إشارة واضحة) ===")
+    blocks.append(t("watching", lang))
     if watching:
-        blocks.extend(render_watching(a) for a in watching)
+        blocks.extend(render_watching(a, lang) for a in watching)
     else:
-        blocks.append("لا شيء.")
+        blocks.append(t("nothing", lang))
 
     blocks.append("")
-    blocks.append("— إشارات فقط. لم يتم ولن يتم تنفيذ أي صفقة تلقائياً. —")
+    blocks.append(t("safety_note", lang))
     return "\n".join(blocks)
