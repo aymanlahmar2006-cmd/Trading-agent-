@@ -66,7 +66,19 @@ $env:CRYPTO_AGENT_LANG = "en"
 > **رسايل Telegram بتفضل بالعربي** مهما كان إعداد الكونسول — الموبايل بيعرض
 > العربي صح. لو عايز تغيّرها، `alerts.language` في `config/watchlist.json`.
 
-## 4. متغيرات البيئة
+## 4. الاختبارات
+
+```powershell
+python -m pytest tests/ -q
+```
+
+المفروض **90 passed** على أي نظام. الاختبارات بتثبّت اللغة بنفسها
+(`tests/conftest.py`)، فنتيجتها واحدة على Windows وLinux.
+
+> لو شفت فشل في اختبارات بتقارن نص عربي، يبقى `CRYPTO_AGENT_LANG` متظبطة عندك
+> بقيمة غريبة. امسحها: `Remove-Item Env:CRYPTO_AGENT_LANG`
+
+## 5. متغيرات البيئة
 
 `export` مش موجودة في PowerShell.
 
@@ -87,7 +99,7 @@ $env:TELEGRAM_BOT_TOKEN = "..."
 echo $env:TELEGRAM_BOT_TOKEN
 ```
 
-## 5. المسارات
+## 6. المسارات
 
 الكود بيستخدم `pathlib`، فالمسارات بتشتغل عادي على Windows. بس لو بتكتب مسار
 بنفسك في أمر، حطه بين علامتين تنصيص لو فيه مسافات:
@@ -96,7 +108,7 @@ echo $env:TELEGRAM_BOT_TOKEN
 python -m crypto_agent analyze "C:\Users\Splendid\Desktop\snap.json"
 ```
 
-## 6. أوامر شائعة — نسخة PowerShell
+## 7. أوامر شائعة — نسخة PowerShell
 
 ```powershell
 # اختبار

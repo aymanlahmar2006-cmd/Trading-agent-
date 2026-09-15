@@ -1,9 +1,17 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from crypto_agent import i18n
+
+
+@pytest.fixture(autouse=True)
+def unpinned(monkeypatch):
+    """Detection tests need the env override the suite normally pins."""
+    monkeypatch.delenv("CRYPTO_AGENT_LANG", raising=False)
 
 
 def test_windows_gets_english_because_its_console_cannot_reorder_rtl(monkeypatch):
@@ -50,3 +58,26 @@ def test_placeholders_match_across_languages():
 
 def test_unknown_key_returns_itself_rather_than_raising():
     assert i18n.t("no_such_key", i18n.EN) == "no_such_key"
+
+
+def test_env_override_beats_platform_detection(monkeypatch):
+    """Why the suite is deterministic on Windows.
+
+    Regression: the test suite asserted on Arabic labels while Windows resolved
+    to English, so 8 tests passed on Linux and failed on Windows. conftest pins
+    CRYPTO_AGENT_LANG, which only works if it outranks platform detection.
+    """
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("CRYPTO_AGENT_LANG", "ar")
+    assert i18n.resolve("auto") == i18n.AR
+
+
+def test_an_explicit_argument_still_beats_the_env_override(monkeypatch):
+    monkeypatch.setenv("CRYPTO_AGENT_LANG", "ar")
+    assert i18n.resolve("en") == i18n.EN
+
+
+def test_a_junk_env_value_is_ignored_not_crashed_on(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("CRYPTO_AGENT_LANG", "klingon")
+    assert i18n.resolve("auto") in (i18n.AR, i18n.EN)

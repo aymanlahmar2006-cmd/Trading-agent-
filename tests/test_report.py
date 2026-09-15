@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from crypto_agent.i18n import t
 from crypto_agent.journal import append_csv, append_jsonl
 from crypto_agent.report import fmt_price, render_report
 from crypto_agent.schema import parse_snapshot
@@ -31,12 +32,12 @@ def test_report_separates_opportunities_from_watching():
     # The tradeable one is promoted regardless of input order.
     assert report.index("SOLUSDT") < report.index("ADAUSDT")
     assert "R:R:" in report
-    assert "لم يتم ولن يتم تنفيذ أي صفقة تلقائياً" in report
+    assert t("safety_note", "ar") in report
 
 
 def test_report_states_market_context_is_missing_rather_than_faking_it():
     result = analyse(build(BEARISH, {"RSI": 38.0}), CONFIG)
-    assert "غير متاح" in render_report([result])
+    assert t("context_unavailable", "ar") in render_report([result])
 
 
 def test_report_ranks_opportunities_by_quality_score():

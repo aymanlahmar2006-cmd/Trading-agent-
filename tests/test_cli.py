@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from crypto_agent.cli import main
+from crypto_agent.i18n import t
 from tests.helpers import bars_from_path, make_snapshot
 from tests.test_signal import BULLISH_PULLBACK
 
@@ -52,7 +53,7 @@ def test_cli_reports_bad_symbols_instead_of_dropping_them(tmp_path, capsys):
 
     assert main(["analyze", str(path), "--config", str(CONFIG_PATH)]) == 0
     out = capsys.readouterr().out
-    assert "فشل تحميلها" in out
+    assert t("load_failures", "ar") in out
     assert "quote.last" in out
 
 
@@ -91,7 +92,7 @@ def test_open_records_a_fill_and_rejects_a_duplicate(tmp_path, monkeypatch, caps
     capsys.readouterr()
 
     assert _run(monkeypatch, tmp_path, args) == 1
-    assert "مفتوحة بالفعل" in capsys.readouterr().err
+    assert t("already_open", "ar", sym="BINANCE:SOLUSDT", id="").split("(")[0].strip() in capsys.readouterr().err
 
 
 def test_open_rejects_a_stop_above_entry(tmp_path, monkeypatch, capsys):
@@ -112,14 +113,14 @@ def test_close_reports_the_result_in_r(tmp_path, monkeypatch, capsys):
     assert _run(monkeypatch, tmp_path,
                 ["close", "--symbol", "SOLUSDT", "--price", "110"]) == 0
     out = capsys.readouterr().out
-    assert "اتقفلت" in out and "R)" in out
+    assert t("closed", "ar") in out and "R)" in out
 
 
 def test_close_without_an_open_position_fails(tmp_path, monkeypatch, capsys):
     code = _run(monkeypatch, tmp_path,
                 ["close", "--symbol", "SOLUSDT", "--price", "110"])
     assert code == 1
-    assert "مفيش صفقة مفتوحة" in capsys.readouterr().err
+    assert t("no_open_position", "ar", sym="SOLUSDT") in capsys.readouterr().err
 
 
 def test_status_shows_live_r_and_realised_summary(tmp_path, monkeypatch, capsys):
@@ -135,7 +136,7 @@ def test_status_shows_live_r_and_realised_summary(tmp_path, monkeypatch, capsys)
 
 def test_status_rejects_a_malformed_price(tmp_path, monkeypatch, capsys):
     assert _run(monkeypatch, tmp_path, ["status", "--price", "SOLUSDT"]) == 1
-    assert "صيغة غلط" in capsys.readouterr().err
+    assert t("bad_price_format", "ar", item="SOLUSDT") in capsys.readouterr().err
 
 
 def test_watch_reports_regime_and_alerts_without_sending(tmp_path, monkeypatch, capsys):
@@ -155,7 +156,7 @@ def test_watch_reports_regime_and_alerts_without_sending(tmp_path, monkeypatch, 
     assert code == 0
     assert "=== Market Context ===" in out
     assert "Risk Sentiment" in out
-    assert "=== تنبيهات ===" in out
+    assert t("alerts_header", "ar") in out
     # A regime file is written so the next run can detect a flip.
     assert (tmp_path / "journal" / "regime.json").exists()
 
@@ -175,4 +176,26 @@ def test_watch_does_not_alert_on_a_symbol_already_held(tmp_path, monkeypatch, ca
     _run(monkeypatch, tmp_path,
          ["watch", str(path), "--config", str(CONFIG_PATH), "--no-notify"])
     out = capsys.readouterr().out
-    assert "إعداد جديد" not in out, "a held symbol must not be pitched as a new idea"
+    assert "new_setup" not in out and t("new_setup_title", "ar", sym="SOLUSDT", q=0).split(":")[1].split("(")[0].strip() not in out, \
+        "a held symbol must not be pitched as a new idea"
+
+
+def test_cli_output_language_is_stable_on_windows(tmp_path, monkeypatch, capsys):
+    """The report must not change language with the host OS once pinned.
+
+    Regression: CLI tests asserted Arabic while Windows resolved to English.
+    """
+    monkeypatch.setattr(sys, "platform", "win32")
+    bars = bars_from_path(BULLISH_PULLBACK)
+    snap = make_snapshot(bars, bars[-1]["close"],
+                         {"RSI": 56.0, "MACD": 1.2, "Signal": 0.7}, [126.0])
+    path = write_snapshot(tmp_path, snap)
+
+    # conftest pins CRYPTO_AGENT_LANG=ar, which outranks the platform.
+    assert main(["analyze", str(path), "--config", str(CONFIG_PATH)]) == 0
+    assert t("watching", "ar") in capsys.readouterr().out
+
+    # And an explicit flag always wins, on any platform.
+    assert main(["analyze", str(path), "--config", str(CONFIG_PATH),
+                 "--lang", "en"]) == 0
+    assert t("watching", "en") in capsys.readouterr().out

@@ -16,17 +16,25 @@ EN = "en"
 
 
 def resolve(lang: str = "auto") -> str:
-    """Pick a language. ``auto`` means Arabic unless the console cannot show it."""
+    """Pick a language. ``auto`` means Arabic unless the console cannot show it.
+
+    Precedence is explicit choice, then CRYPTO_AGENT_LANG, then detection. The
+    environment variable outranks detection because it is a stated preference,
+    and because it is what lets a test suite behave the same on every OS.
+    """
     if lang in (AR, EN):
         return lang
+
+    from_env = os.environ.get("CRYPTO_AGENT_LANG", "").strip().lower()
+    if from_env in (AR, EN):
+        return from_env
+
     if sys.platform.startswith("win"):
         # Windows Terminal and conhost both lack bidirectional reordering.
         return EN
     encoding = (getattr(sys.stdout, "encoding", "") or "").lower()
     if encoding and "utf" not in encoding:
         return EN
-    if os.environ.get("CRYPTO_AGENT_LANG") in (AR, EN):
-        return os.environ["CRYPTO_AGENT_LANG"]
     return AR
 
 
