@@ -60,6 +60,11 @@ TradingView Desktop (جهازك)
 
 ## التشغيل
 
+> **على Windows (PowerShell):** استخدم `python` بدل `python3`، واكتب كل أمر في
+> **سطر واحد**. الـ `\` في آخر السطر دي صيغة Linux — PowerShell بتقسم الأمر
+> وبيطلع `fatal: repository '\' does not exist`. لو محتاج تكسر سطر في
+> PowerShell استخدم backtick `` ` `` مش `\`.
+
 ```bash
 # تحليل + سياق السوق + تنبيهات (من غير إرسال)
 python3 -m crypto_agent watch snapshots/latest.json --no-notify
@@ -68,8 +73,7 @@ python3 -m crypto_agent watch snapshots/latest.json --no-notify
 python3 -m crypto_agent analyze examples/snapshot_pullback.example.json
 
 # سجّل صفقة نفّذتها إنت
-python3 -m crypto_agent open  --symbol BINANCE:SOLUSDT --entry 112.6 \
-                              --size 10 --stop 108.2 --target 120.3
+python3 -m crypto_agent open --symbol BINANCE:SOLUSDT --entry 112.6 --size 10 --stop 108.2 --target 120.3
 
 python3 -m crypto_agent close --symbol SOLUSDT --price 120.3
 python3 -m crypto_agent status --price SOLUSDT=118.4
@@ -90,7 +94,7 @@ python3 -m pytest tests/ -q
 
 ## التنبيهات
 
-Telegram — مجاني، بيوصل على الموبايل. الإعداد في **[docs/TELEGRAM.md](docs/TELEGRAM.md)**.
+Telegram — مجاني، بيوصل على الموبايل. الإعداد في **[docs/TELEGRAM.md](docs/TELEGRAM.md)**. وللي على Windows: **[docs/WINDOWS.md](docs/WINDOWS.md)**.
 
 المفاتيح بتتقرا من البيئة (`TELEGRAM_BOT_TOKEN`، `TELEGRAM_CHAT_ID`)، **مش من
 أي ملف في الريبو** — الريبو ده public.

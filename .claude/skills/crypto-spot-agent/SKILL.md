@@ -127,8 +127,7 @@ did not print.
 Only when the user reports a fill:
 
 ```bash
-python3 -m crypto_agent open  --symbol BINANCE:SOLUSDT --entry 112.6 \
-                              --size 10 --stop 108.2 --target 120.3
+python3 -m crypto_agent open --symbol BINANCE:SOLUSDT --entry 112.6 --size 10 --stop 108.2 --target 120.3
 python3 -m crypto_agent close --symbol SOLUSDT --price 120.3
 python3 -m crypto_agent status --price SOLUSDT=118.4
 ```
