@@ -54,7 +54,10 @@ def render_opportunity(index: int, analysis: SymbolAnalysis) -> str:
         f"   السعر الحالي: {fmt_price(analysis.price)} | "
         f"ATR: {fmt_price(analysis.atr)} | جودة الإعداد: {analysis.quality_score}/100",
         f"   Entry: {entry} | Stop: {fmt_price(plan.stop)} | "
-        f"Target: {fmt_price(plan.target)} | R:R: {plan.risk_reward:.2f}",
+        f"Target: {fmt_price(plan.target)}",
+        f"   R:R: {plan.net_risk_reward:.2f} صافي "
+        f"({plan.risk_reward:.2f} قبل التكاليف — الرسوم والانزلاق "
+        f"بياخدوا {plan.cost_in_r:.2f}R)",
         "   السبب:",
     ]
     lines.extend(f"     • {reason}" for reason in analysis.reasoning)

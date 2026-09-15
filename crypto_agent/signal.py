@@ -40,7 +40,9 @@ class TradePlan:
     entry_high: float
     stop: float
     target: float
-    risk_reward: float
+    risk_reward: float          # gross, before trading costs
+    net_risk_reward: float      # after a round trip of fees and slippage
+    cost_in_r: float            # what that round trip costs, in units of R
     stop_basis: str
     target_basis: str
     entry_basis: str
@@ -218,6 +220,21 @@ def _score_trend(votes: list[Vote]) -> tuple[str, str, float]:
     return direction, strength, agreement
 
 
+def cost_in_r(entry: float, risk: float, risk_cfg: dict[str, Any]) -> float:
+    """One round trip's cost expressed in R.
+
+    Fees and slippage are a fraction of *price*; R is a fraction of the *stop
+    distance*. So the tighter the stop, the more of each R the costs eat -- which
+    is why a short holding period is the expensive one, not the cheap one. A
+    0.26% round trip against a 0.5% stop is 0.52R, larger than most edges.
+    """
+    if risk <= 0 or entry <= 0:
+        return 0.0
+    round_trip_pct = 2.0 * (float(risk_cfg.get("fee_pct", 0.0))
+                            + float(risk_cfg.get("slippage_pct", 0.0)))
+    return (entry * round_trip_pct / 100.0) / risk
+
+
 def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
                 pivots: list[ind.Pivot], risk_cfg: dict[str, Any]
                 ) -> tuple[TradePlan | None, str | None]:
@@ -281,23 +298,39 @@ def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
         return None, "Computed stop sits at or above entry -- setup discarded."
 
     min_rr = float(risk_cfg.get("min_risk_reward", 1.5))
-    viable = [lv for lv in resistances if (lv - entry_low) / risk >= min_rr]
+    costs = cost_in_r(entry_low, risk, risk_cfg)
+
+    max_cost = float(risk_cfg.get("max_cost_in_r", 0.25))
+    if costs > max_cost:
+        return None, (
+            f"Fees and slippage cost {costs:.2f}R on this stop distance "
+            f"({fmt_price(risk)} wide), above the {max_cost:.2f}R limit. The stop is "
+            "too tight for the trade to survive its own costs."
+        )
+
+    # Gate on the net ratio: a 1.5:1 that pays 0.3R to the exchange is a 1.2:1.
+    viable = [lv for lv in resistances
+              if ((lv - entry_low) / risk) - costs >= min_rr]
     if not viable:
         best = resistances[0]
         best_rr = (best - entry_low) / risk
         return None, (
-            f"Nearest resistance {fmt_price(best)} only offers {best_rr:.2f}:1 from "
-            f"entry {fmt_price(entry_low)} (minimum {min_rr:.1f}:1). Structure does not "
-            "support a target that far, so no trade is proposed."
+            f"Nearest resistance {fmt_price(best)} offers {best_rr:.2f}:1 gross from "
+            f"entry {fmt_price(entry_low)}, but {costs:.2f}R goes to fees and slippage, "
+            f"leaving {best_rr - costs:.2f}:1 net (minimum {min_rr:.1f}:1). Structure "
+            "does not support a target that far, so no trade is proposed."
         )
 
     target = viable[0]
+    gross_rr = (target - entry_low) / risk
     return TradePlan(
         entry_low=entry_low,
         entry_high=entry_high,
         stop=stop,
         target=target,
-        risk_reward=(target - entry_low) / risk,
+        risk_reward=gross_rr,
+        net_risk_reward=gross_rr - costs,
+        cost_in_r=costs,
         stop_basis=stop_basis,
         target_basis=f"nearest resistance clearing {min_rr:.1f}:1",
         entry_basis=entry_basis,
@@ -309,7 +342,7 @@ def _confidence(agreement: float, aligned: int, plan: TradePlan | None,
                 warnings: list[str], min_rr: float) -> str:
     if plan is None:
         return "low"
-    if agreement >= 0.7 and aligned >= 4 and not warnings and plan.risk_reward >= min_rr:
+    if agreement >= 0.7 and aligned >= 4 and not warnings and plan.net_risk_reward >= min_rr:
         return "high"
     if agreement >= 0.45 and aligned >= 3 and len(warnings) <= 1:
         return "medium"
@@ -322,7 +355,7 @@ def _quality_score(agreement: float, plan: TradePlan | None, confidence: str,
     if plan is None:
         return 0.0
     trend_points = agreement * 40
-    rr_points = min(plan.risk_reward / 3.0, 1.0) * 30
+    rr_points = min(plan.net_risk_reward / 3.0, 1.0) * 30
     # Closer to the entry level is better -- less waiting, tighter invalidation.
     proximity_points = max(0.0, 1.0 - plan.distance_to_entry_atr) * 20
     confidence_points = CONFIDENCE_ORDER[confidence] * 5
@@ -407,6 +440,10 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
         reasoning.append(f"Entry anchored on {plan.entry_basis}.")
         reasoning.append(f"Stop from {plan.stop_basis}.")
         reasoning.append(f"Target is the {plan.target_basis} at {fmt_price(plan.target)}.")
+        reasoning.append(
+            f"R:R {plan.risk_reward:.2f} gross, {plan.net_risk_reward:.2f} net after "
+            f"{plan.cost_in_r:.2f}R of fees and slippage."
+        )
         reasoning.append(f"ATR({risk_cfg.get('atr_period', 14)}) = {fmt_price(atr_value)}.")
     result.reasoning = reasoning
     return result

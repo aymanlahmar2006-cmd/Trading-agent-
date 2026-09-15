@@ -11,7 +11,8 @@ from .signal import SymbolAnalysis
 CSV_COLUMNS = [
     "collected_at", "symbol", "timeframe", "price", "trend", "trend_strength",
     "actionable", "confidence", "quality_score", "entry_low", "entry_high",
-    "stop", "target", "risk_reward", "atr", "rejected_reason",
+    "stop", "target", "risk_reward", "net_risk_reward", "cost_in_r",
+    "atr", "rejected_reason",
 ]
 
 
@@ -48,6 +49,8 @@ def append_csv(analyses: list[SymbolAnalysis], path: Path) -> None:
                 "stop": plan.stop if plan else "",
                 "target": plan.target if plan else "",
                 "risk_reward": round(plan.risk_reward, 3) if plan else "",
+                "net_risk_reward": round(plan.net_risk_reward, 3) if plan else "",
+                "cost_in_r": round(plan.cost_in_r, 4) if plan else "",
                 "atr": analysis.atr if analysis.atr is not None else "",
                 "rejected_reason": analysis.rejected_reason or "",
             })

@@ -31,7 +31,9 @@ def test_bullish_pullback_produces_a_coherent_long_plan():
     plan = result.plan
     assert plan is not None
     assert plan.stop < plan.entry_low <= plan.entry_high < plan.target
-    assert plan.risk_reward >= CONFIG["risk"]["min_risk_reward"]
+    assert plan.net_risk_reward >= CONFIG["risk"]["min_risk_reward"]
+    assert plan.cost_in_r > 0, "a plan that ignores fees overstates its own edge"
+    assert plan.net_risk_reward < plan.risk_reward
     # The stop must sit below a real structural level, not an arbitrary offset.
     assert "swing low" in plan.stop_basis or "ATR stop" in plan.stop_basis
 
@@ -71,7 +73,7 @@ def test_target_below_min_rr_is_rejected_not_stretched():
     result = analyse(snap, CONFIG)
 
     if result.plan is not None:
-        assert result.plan.risk_reward >= CONFIG["risk"]["min_risk_reward"]
+        assert result.plan.net_risk_reward >= CONFIG["risk"]["min_risk_reward"]
     else:
         assert "minimum" in result.rejected_reason or "resistance" in result.rejected_reason
 
@@ -107,3 +109,40 @@ def test_tool_errors_from_collection_survive_into_the_analysis():
     payload["errors"] = ["data_get_pine_lines failed: no such study"]
     result = analyse(parse_snapshot(payload), CONFIG)
     assert any("pine_lines failed" in w for w in result.warnings)
+
+
+def test_cost_in_r_is_round_trip_cost_over_stop_distance():
+    from crypto_agent.signal import cost_in_r
+    cfg = {"fee_pct": 0.1, "slippage_pct": 0.03}
+    # 0.26% round trip on a 100-priced asset = 0.26 of price; against a 1.0 stop
+    # that is 0.26R.
+    assert cost_in_r(100.0, 1.0, cfg) == pytest.approx(0.26, rel=1e-6)
+    assert cost_in_r(100.0, 2.0, cfg) == pytest.approx(0.13, rel=1e-6)
+    assert cost_in_r(100.0, 0.0, cfg) == 0.0
+
+
+def test_tight_stops_on_a_quiet_15m_chart_are_rejected_on_cost():
+    """The core hazard of a 15-minute holding period, in one test.
+
+    Real BTC 15m bars move a fraction of a percent, so a structural stop lands
+    ~0.1% from entry. A 0.26% round trip against that is over 2R -- the trade
+    cannot pay for itself no matter how good the read is.
+    """
+    quiet = [60000, 60120, 60050, 60200, 60130, 60280, 60200]
+    snap = build(quiet, {"RSI": 56.0, "MACD": 1.2, "Signal": 0.7},
+                 pine_lines=[60400.0], symbol="BINANCE:BTCUSDT")
+    snap.bars[:] = [b for b in snap.bars]  # bars already built by the helper
+    result = analyse(snap, CONFIG)
+
+    assert result.plan is None
+    assert result.actionable is False
+    assert "fees and slippage" in result.rejected_reason.lower()
+
+
+def test_wide_stops_still_pass_the_cost_gate():
+    """The gate must reject tight stops, not every trade."""
+    snap = build(BULLISH_PULLBACK, {"RSI": 56.0, "MACD": 1.2, "Signal": 0.7},
+                 pine_lines=[126.0])
+    result = analyse(snap, CONFIG)
+    assert result.plan is not None
+    assert result.plan.cost_in_r < CONFIG["risk"]["max_cost_in_r"]

@@ -52,6 +52,9 @@ CONFIG = {
         "max_entry_distance_atr": 1.0,
         "min_stop_distance_atr": 0.6,
         "pivot_lookback": 3,
+        "fee_pct": 0.1,
+        "slippage_pct": 0.03,
+        "max_cost_in_r": 0.25,
     },
     "filters": {"min_confidence_to_report": "medium", "long_only": True},
 }
