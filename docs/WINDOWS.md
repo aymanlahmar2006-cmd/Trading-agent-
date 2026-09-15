@@ -129,6 +129,9 @@ python -m crypto_agent close --symbol SOLUSDT --price 120.3
 # الحالة
 python -m crypto_agent status --price SOLUSDT=118.4
 
+# هات الـ chat ID
+python scripts\find_chat_id.py
+
 # اختبار Telegram
 python -c "from crypto_agent.notify import notify; print(notify('اختبار'))"
 ```
