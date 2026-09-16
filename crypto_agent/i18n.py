@@ -75,6 +75,7 @@ T: dict[str, dict[str, str]] = {
     "reason": {AR: "السبب:", EN: "Reasoning:"},
     "confidence": {AR: "الثقة", EN: "Confidence"},
     "data_gaps": {AR: "⚠ نواقص في البيانات:", EN: "⚠ Data gaps:"},
+    "notes": {AR: "ℹ ملاحظات:", EN: "ℹ Notes:"},
     "rr_net": {AR: "صافي", EN: "net"},
     "rr_gross_note": {
         AR: "قبل التكاليف — الرسوم والانزلاق بياخدوا",

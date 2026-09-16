@@ -55,6 +55,9 @@ def render_opportunity(index: int, analysis: SymbolAnalysis, lang: str) -> str:
     if analysis.warnings:
         lines.append(f"   {t('data_gaps', lang)}")
         lines.extend(f"     • {w}" for w in analysis.warnings)
+    if analysis.notes:
+        lines.append(f"   {t('notes', lang)}")
+        lines.extend(f"     • {n}" for n in analysis.notes)
     return "\n".join(lines)
 
 

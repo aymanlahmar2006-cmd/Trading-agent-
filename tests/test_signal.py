@@ -146,3 +146,33 @@ def test_wide_stops_still_pass_the_cost_gate():
     result = analyse(snap, CONFIG)
     assert result.plan is not None
     assert result.plan.cost_in_r < CONFIG["risk"]["max_cost_in_r"]
+
+
+def test_computed_emas_are_a_note_not_a_data_gap():
+    """A TradingView Basic account allows two indicators, so a user on that plan
+    never has chart EMAs. Computing them from the same bars is equivalent, so it
+    must not permanently cap their confidence."""
+    snap = build(BULLISH_PULLBACK, {"RSI": 56.0, "MACD": 1.2, "Signal": 0.7},
+                 pine_lines=[126.0])
+    result = analyse(snap, CONFIG)
+
+    assert result.warnings == [], f"computed EMAs are not a gap: {result.warnings}"
+    assert any("computed from the same bars" in n for n in result.notes)
+    assert result.confidence == "high", \
+        "a full set of signals should reach high confidence on a Basic account"
+
+
+def test_a_genuinely_missing_indicator_is_still_a_warning():
+    snap = build(BULLISH_PULLBACK, {"RSI": 56.0}, pine_lines=[126.0])
+    result = analyse(snap, CONFIG)
+    assert any("MACD" in w for w in result.warnings)
+    assert result.confidence != "high"
+
+
+def test_an_unreadable_value_lowers_confidence_like_a_gap():
+    """An unparseable study is a real problem, unlike a computed EMA."""
+    bars = bars_from_path(BULLISH_PULLBACK)
+    payload = make_snapshot(bars, bars[-1]["close"],
+                            {"RSI": 56.0, "MACD": "n/a"}, [126.0])
+    result = analyse(parse_snapshot(payload), CONFIG)
+    assert any("not a number" in w for w in result.warnings)

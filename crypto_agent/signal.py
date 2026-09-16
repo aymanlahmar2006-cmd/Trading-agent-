@@ -63,7 +63,10 @@ class SymbolAnalysis:
     votes: list[Vote] = field(default_factory=list)
     plan: TradePlan | None = None
     reasoning: list[str] = field(default_factory=list)
+    # Genuine data gaps: these lower confidence.
     warnings: list[str] = field(default_factory=list)
+    # Informational only -- the input was obtained a different way, not lost.
+    notes: list[str] = field(default_factory=list)
     rejected_reason: str | None = None
     atr: float | None = None
 
@@ -77,18 +80,21 @@ class SymbolAnalysis:
 def _ema_inputs(snap: Snapshot) -> tuple[dict[str, float], str, list[str]]:
     """Resolve EMA values, preferring what the chart itself reports.
 
-    Values read off the chart match what the user is looking at; values computed
-    from bars are a fallback so the engine still works on a bare chart. The
-    source is returned so the report can say which one was used.
+    Values read off the chart match what the user is looking at. Computing them
+    from the returned bars is a *note*, not a warning: it is the same price data
+    the chart would use, so the number is not less trustworthy. It matters
+    because a TradingView Basic account allows only two indicators, so a user
+    on that plan would otherwise be capped below full confidence forever for a
+    difference that does not affect the arithmetic.
     """
-    warnings: list[str] = []
+    notes: list[str] = []
     from_chart = {
         key: value
         for key, value in snap.studies.items()
         if key.startswith("ema") or key.startswith("moving_average_exponential")
     }
     if len(from_chart) >= 2:
-        return from_chart, "chart studies", warnings
+        return from_chart, "chart studies", notes
 
     closes = [b.close for b in snap.bars]
     computed: dict[str, float] = {}
@@ -97,11 +103,11 @@ def _ema_inputs(snap: Snapshot) -> tuple[dict[str, float], str, list[str]]:
         if value is not None:
             computed[f"ema_{period}"] = value
     if computed:
-        warnings.append(
-            "No EMA studies found on the chart; EMA 9/21/50 were computed from "
-            "the returned bars instead."
+        notes.append(
+            "No EMA studies on the chart, so EMA 9/21/50 were computed from the "
+            "same bars the chart draws. The values are equivalent."
         )
-    return computed, "computed from bars", warnings
+    return computed, "computed from bars", notes
 
 
 def _sorted_emas(emas: dict[str, float]) -> list[tuple[str, float]]:
@@ -371,8 +377,7 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
     min_rr = float(risk_cfg.get("min_risk_reward", 1.5))
 
     warnings = list(snap.errors)
-    emas, ema_source, ema_warnings = _ema_inputs(snap)
-    warnings.extend(ema_warnings)
+    emas, ema_source, ema_notes = _ema_inputs(snap)
 
     pivots = ind.find_pivots(snap.bars, int(risk_cfg.get("pivot_lookback", 3)))
     votes, vote_warnings = _collect_votes(snap, emas, pivots)
@@ -396,6 +401,7 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
         quality_score=0.0,
         votes=votes,
         warnings=warnings,
+        notes=ema_notes,
         atr=atr_value,
     )
 
