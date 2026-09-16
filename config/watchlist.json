@@ -1,24 +1,227 @@
 {
   "_comment": "Edit this file to change what the agent watches. No code changes needed.",
-
   "watchlist": [
-    { "symbol": "BINANCE:BTCUSDT", "enabled": true },
-    { "symbol": "BINANCE:ETHUSDT", "enabled": true },
-    { "symbol": "BINANCE:SOLUSDT", "enabled": true }
+    {
+      "symbol": "BINANCE:BTCUSDT",
+      "enabled": true,
+      "tier": "major",
+      "slippage_pct": 0.03
+    },
+    {
+      "symbol": "BINANCE:ETHUSDT",
+      "enabled": true,
+      "tier": "major",
+      "slippage_pct": 0.03
+    },
+    {
+      "symbol": "BINANCE:SOLUSDT",
+      "enabled": true,
+      "tier": "major",
+      "slippage_pct": 0.03
+    },
+    {
+      "symbol": "BINANCE:BNBUSDT",
+      "enabled": true,
+      "tier": "major",
+      "slippage_pct": 0.03
+    },
+    {
+      "symbol": "BINANCE:XRPUSDT",
+      "enabled": true,
+      "tier": "major",
+      "slippage_pct": 0.03
+    },
+    {
+      "symbol": "BINANCE:ADAUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:AVAXUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:DOGEUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:LINKUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:DOTUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:LTCUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:ATOMUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:UNIUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:NEARUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:APTUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:ARBUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:OPUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:SUIUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:TIAUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:AAVEUSDT",
+      "enabled": true,
+      "tier": "large",
+      "slippage_pct": 0.06
+    },
+    {
+      "symbol": "BINANCE:FILUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:INJUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:SEIUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:RUNEUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:MKRUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:GRTUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:ALGOUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:VETUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:ICPUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:HBARUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:STXUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:IMXUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:LDOUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:CRVUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    },
+    {
+      "symbol": "BINANCE:SANDUSDT",
+      "enabled": true,
+      "tier": "mid",
+      "slippage_pct": 0.12
+    }
   ],
-
   "_timeframe_comment": "1h entries with 4h context. 15m was measured at 2.18R of cost per round trip on a quiet chart -- the stop is too tight to survive its own fees.",
   "timeframe": "60",
   "context_timeframe": "240",
   "bars_to_pull": 150,
-
   "market_context": {
     "leader_symbol": "BINANCE:BTCUSDT",
     "leader_timeframe": "240",
     "dominance_symbol": "CRYPTOCAP:BTC.D",
     "total_mcap_symbol": "CRYPTOCAP:TOTAL"
   },
-
   "risk": {
     "min_risk_reward": 1.5,
     "atr_period": 14,
@@ -26,21 +229,17 @@
     "max_entry_distance_atr": 1.0,
     "min_stop_distance_atr": 0.6,
     "pivot_lookback": 3,
-
     "_costs_comment": "Binance spot taker fee plus a conservative slippage allowance, per side. R:R is gated on the NET figure.",
     "fee_pct": 0.1,
     "slippage_pct": 0.03,
     "max_cost_in_r": 0.25
   },
-
   "filters": {
     "min_confidence_to_report": "medium",
     "long_only": true,
-
     "_ichimoku_comment": "Ichimoku does not buy below or inside the cloud. With this on, no long is proposed there even when the other signals agree -- so the engine never contradicts the chart you read.",
     "ichimoku_veto": true
   },
-
   "alerts": {
     "_comment": "Credentials come from the environment (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID), never from this file.",
     "channel": "auto",
@@ -48,5 +247,12 @@
     "language": "ar",
     "min_quality_for_new_setup": 60.0,
     "stop_warn_pct": 25.0
+  },
+  "_watchlist_comment": "tier and slippage_pct are per symbol: a mid-cap costs more to cross than BTC, and pretending otherwise makes its setups look tradeable when they are not. Set enabled:false to skip a symbol without deleting it. If a symbol does not load on your account the scan reports it rather than silently skipping it.",
+  "report": {
+    "_comment": "With a long watchlist the full reasoning for every candidate buries the ranking. The top few carry their reasoning; the rest show levels only, and rejected symbols collapse to one line per reason.",
+    "max_opportunities": 5,
+    "compact_watching": true,
+    "full_reasoning_for": 2
   }
 }

@@ -97,7 +97,11 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             print(f"  - {failure}", file=sys.stderr)
         return 1
 
-    print(render_report(analyses, raw_context, lang=lang))
+    report_cfg = config.get("report", {})
+    print(render_report(analyses, raw_context, lang=lang,
+                        max_opportunities=int(report_cfg.get("max_opportunities", 5)),
+                        compact_watching=bool(report_cfg.get("compact_watching", True)),
+                        full_reasoning_for=int(report_cfg.get("full_reasoning_for", 2))))
     _print_failures(failures, lang)
 
     if args.json_out:
@@ -157,7 +161,11 @@ def cmd_watch(args: argparse.Namespace) -> int:
     shown = collect(analyses, book, prices, previous, current,
                     min_quality, stop_warn, lang=lang)
 
-    print(render_report(analyses, current.to_context(lang), lang=lang))
+    report_cfg = config.get("report", {})
+    print(render_report(analyses, current.to_context(lang), lang=lang,
+                        max_opportunities=int(report_cfg.get("max_opportunities", 5)),
+                        compact_watching=bool(report_cfg.get("compact_watching", True)),
+                        full_reasoning_for=int(report_cfg.get("full_reasoning_for", 2))))
     _print_failures(failures, lang)
 
     print("\n" + t("alerts_header", lang))

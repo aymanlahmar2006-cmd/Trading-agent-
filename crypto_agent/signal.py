@@ -69,10 +69,12 @@ class SymbolAnalysis:
     # Informational only -- the input was obtained a different way, not lost.
     notes: list[str] = field(default_factory=list)
     rejected_reason: str | None = None
+    rejected_kind: str = ""
     atr: float | None = None
     # Where price sits relative to the cloud: above / inside / below, or "" when
     # Ichimoku could not be read.
     cloud_position: str = ""
+    tier: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -302,7 +304,7 @@ def cost_in_r(entry: float, risk: float, risk_cfg: dict[str, Any]) -> float:
 def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
                 pivots: list[ind.Pivot], risk_cfg: dict[str, Any],
                 reading: ichi.Ichimoku | None = None
-                ) -> tuple[TradePlan | None, str | None]:
+                ) -> tuple[TradePlan | None, str | None, str]:
     """Build a long-only plan anchored on real levels. Returns (plan, reject)."""
     price = snap.quote.last
     tolerance = atr_value * 0.25
@@ -324,10 +326,11 @@ def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
     if not supports:
         return None, ("No support level below price could be identified from "
                       "pivots, EMAs or drawn lines -- there is nothing to anchor "
-                      "an entry or stop to.")
+                      "an entry or stop to."), "no_support"
     if not resistances:
         return None, ("No resistance level above price could be identified -- a "
-                      "target would have to be invented, so no trade is proposed.")
+                      "target would have to be invented, so no trade is proposed."),\
+            "no_resistance"
 
     entry_ref = max(supports)
     distance_atr = (price - entry_ref) / atr_value
@@ -337,7 +340,7 @@ def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
             f"Nearest support {fmt_price(entry_ref)} is {distance_atr:.2f} ATR below "
             f"price {fmt_price(price)} (limit {max_distance:.2f} ATR) -- entering here "
             "means buying extended with the stop far away."
-        )
+        ), "too_extended"
 
     entry_low = entry_ref
     entry_high = min(price, entry_ref + 0.3 * atr_value)
@@ -365,7 +368,7 @@ def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
 
     risk = entry_low - stop
     if risk <= 0:
-        return None, "Computed stop sits at or above entry -- setup discarded."
+        return None, "Computed stop sits at or above entry -- setup discarded.", "bad_stop"
 
     min_rr = float(risk_cfg.get("min_risk_reward", 1.5))
     costs = cost_in_r(entry_low, risk, risk_cfg)
@@ -376,7 +379,7 @@ def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
             f"Fees and slippage cost {costs:.2f}R on this stop distance "
             f"({fmt_price(risk)} wide), above the {max_cost:.2f}R limit. The stop is "
             "too tight for the trade to survive its own costs."
-        )
+        ), "cost"
 
     # Gate on the net ratio: a 1.5:1 that pays 0.3R to the exchange is a 1.2:1.
     viable = [lv for lv in resistances
@@ -389,7 +392,7 @@ def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
             f"entry {fmt_price(entry_low)}, but {costs:.2f}R goes to fees and slippage, "
             f"leaving {best_rr - costs:.2f}:1 net (minimum {min_rr:.1f}:1). Structure "
             "does not support a target that far, so no trade is proposed."
-        )
+        ), "low_rr"
 
     target = viable[0]
     gross_rr = (target - entry_low) / risk
@@ -405,7 +408,7 @@ def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
         target_basis=f"nearest resistance clearing {min_rr:.1f}:1",
         entry_basis=entry_basis,
         distance_to_entry_atr=distance_atr,
-    ), None
+    ), None, ""
 
 
 def _confidence(agreement: float, aligned: int, plan: TradePlan | None,
@@ -434,9 +437,24 @@ def _quality_score(agreement: float, plan: TradePlan | None, confidence: str,
         trend_points + rr_points + proximity_points + confidence_points - penalty)), 1)
 
 
+def watchlist_entry(symbol: str, config: dict[str, Any]) -> dict[str, Any]:
+    """The watchlist row for ``symbol``, matched on the bare ticker."""
+    short = symbol.split(":")[-1]
+    for entry in config.get("watchlist", []) or []:
+        if str(entry.get("symbol", "")).split(":")[-1] == short:
+            return entry
+    return {}
+
+
 def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
     """Turn one collected snapshot into a structured, spot-only analysis."""
-    risk_cfg = config.get("risk", {})
+    risk_cfg = dict(config.get("risk", {}))
+
+    # A mid-cap costs several times what BTC costs to cross. Using one slippage
+    # figure for the whole watchlist makes thin markets look tradeable.
+    entry = watchlist_entry(snap.symbol, config)
+    if entry.get("slippage_pct") is not None:
+        risk_cfg["slippage_pct"] = entry["slippage_pct"]
     filters = config.get("filters", {})
     min_rr = float(risk_cfg.get("min_risk_reward", 1.5))
 
@@ -478,9 +496,11 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
         atr=atr_value,
         cloud_position=("" if reading is None
                         else reading.price_position(snap.quote.last)),
+        tier=str(entry.get("tier", "")),
     )
 
     if atr_value is None:
+        result.rejected_kind = "no_atr"
         result.rejected_reason = (
             f"ATR unavailable: {len(snap.bars)} bars returned, need at least "
             f"{int(risk_cfg.get('atr_period', 14)) + 1}. Stops cannot be sized."
@@ -491,6 +511,7 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
     if (filters.get("ichimoku_veto", True) and reading is not None
             and result.cloud_position != ichi.ABOVE):
         where = "inside" if result.cloud_position == ichi.INSIDE else "below"
+        result.rejected_kind = f"cloud_{where}"
         result.rejected_reason = (
             f"Price {fmt_price(snap.quote.last)} is {where} the Ichimoku cloud "
             f"({fmt_price(reading.cloud_bottom)}-{fmt_price(reading.cloud_top)}). "
@@ -502,12 +523,14 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
 
     if filters.get("long_only", True) and trend != BULLISH:
         if trend == BEARISH:
+            result.rejected_kind = "bearish"
             result.rejected_reason = (
                 f"Trend is bearish ({strength}, {agreement:.0%} agreement). This is "
                 "a spot account -- there is no short to take, so the symbol is left "
                 "alone rather than forced into a long."
             )
         else:
+            result.rejected_kind = "sideways"
             result.rejected_reason = (
                 f"Trend is sideways ({agreement:.0%} directional agreement) -- "
                 "signals disagree, so no clean setup."
@@ -515,16 +538,24 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
         result.reasoning = [v.detail for v in votes]
         return result
 
-    plan, reject = _build_plan(snap, atr_value, emas, pivots, risk_cfg, reading)
+    plan, reject, reject_kind = _build_plan(
+        snap, atr_value, emas, pivots, risk_cfg, reading)
     aligned = sum(1 for v in votes if v.direction == trend)
     confidence = _confidence(agreement, aligned, plan, warnings, min_rr)
 
     result.plan = plan
     result.rejected_reason = reject
+    result.rejected_kind = reject_kind
     result.confidence = confidence
     result.quality_score = _quality_score(agreement, plan, confidence, warnings)
     result.actionable = plan is not None and CONFIDENCE_ORDER[confidence] >= \
         CONFIDENCE_ORDER.get(str(filters.get("min_confidence_to_report", "medium")), 1)
+    if plan is not None and not result.actionable:
+        result.rejected_kind = "low_confidence"
+        result.rejected_reason = (
+            f"Setup is valid but confidence is {confidence}, below the reporting "
+            "threshold."
+        )
 
     reasoning = [f"Trend read: {trend} ({strength}), {agreement:.0%} of weighted "
                  f"signals agree. EMA source: {ema_source}."]

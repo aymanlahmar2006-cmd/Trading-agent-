@@ -64,7 +64,23 @@ symbol does not load on this account, say so and leave it empty — the engine
 computes regime from BTC's trend and watchlist breadth regardless, and reports
 dominance as unavailable rather than guessing.
 
-### Step 2: per symbol
+### Step 2: per symbol — script the loop, do not reason through it
+
+The watchlist is **35 symbols**. Driving that symbol-by-symbol through your own
+reasoning means 35 rounds of tool calls with 150 bars each flowing through
+context, which exhausts a session's usage budget on a single scan and leaves
+nothing for the analysis.
+
+**Write a collection script once and run it.** It loops the symbols, calls the
+MCP tools per symbol, and writes one snapshot array straight to disk. You read
+the engine's report, not 5,000 candles. If a script from a previous scan is
+still there, reuse it rather than rewriting it.
+
+Budget check before you start: if the session is near its usage limit, say so
+and scan a subset (the `major` tier) rather than starting a full pass you cannot
+finish. A truncated scan reported as complete is worse than a small one.
+
+For each enabled symbol:
 For each enabled symbol, plus the leader symbol:
 
 ```

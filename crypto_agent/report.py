@@ -29,7 +29,14 @@ def render_market_context(context: dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def render_opportunity(index: int, analysis: SymbolAnalysis, lang: str) -> str:
+def render_opportunity(index: int, analysis: SymbolAnalysis, lang: str,
+                       full: bool = True) -> str:
+    """One opportunity. ``full`` includes the reasoning; otherwise just levels.
+
+    Reasoning is what makes a setup checkable, so the top picks always carry it.
+    But repeating fifteen lines of it for every candidate buries the ranking the
+    report exists to show, so the tail gets the numbers only.
+    """
     plan = analysis.plan
     assert plan is not None, "render_opportunity requires an analysis with a plan"
 
@@ -48,8 +55,13 @@ def render_opportunity(index: int, analysis: SymbolAnalysis, lang: str) -> str:
         f"Target: {fmt_price(plan.target)}",
         f"   R:R: {plan.net_risk_reward:.2f} {t('rr_net', lang)} "
         f"({plan.risk_reward:.2f} {t('rr_gross_note', lang)} {plan.cost_in_r:.2f}R)",
-        f"   {t('reason', lang)}",
     ]
+    if not full:
+        lines.append(f"   {t('confidence', lang)}: {t(analysis.confidence, lang)}"
+                     + (f" | ⚠ {len(analysis.warnings)}" if analysis.warnings else ""))
+        return "\n".join(lines)
+
+    lines.append(f"   {t('reason', lang)}")
     lines.extend(f"     • {reason}" for reason in analysis.reasoning)
     lines.append(f"   {t('confidence', lang)}: {t(analysis.confidence, lang)}")
     if analysis.warnings:
@@ -69,9 +81,32 @@ def render_watching(analysis: SymbolAnalysis, lang: str) -> str:
     return line
 
 
+def render_watching_grouped(analyses: list[SymbolAnalysis], lang: str) -> list[str]:
+    """One line per reason, not per symbol.
+
+    A 35-symbol watchlist produces 35 rejection paragraphs, which nobody reads --
+    and an unread report hides the two lines that mattered. Grouping keeps the
+    information and makes the shape of the market visible at a glance.
+    """
+    groups: dict[str, list[str]] = {}
+    for analysis in analyses:
+        kind = analysis.rejected_kind or "other"
+        groups.setdefault(kind, []).append(_short_symbol(analysis.symbol))
+
+    lines = []
+    for kind, symbols in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        label = t(f"kind_{kind}", lang)
+        if label == f"kind_{kind}":          # no label for this kind yet
+            label = t("kind_other", lang)
+        lines.append(f"- {label} ({len(symbols)}): {', '.join(sorted(symbols))}")
+    return lines
+
+
 def render_report(analyses: list[SymbolAnalysis],
                   market_context: dict[str, Any] | None = None,
-                  lang: str = "auto") -> str:
+                  lang: str = "auto", max_opportunities: int = 5,
+                  compact_watching: bool = True,
+                  full_reasoning_for: int = 2) -> str:
     lang = resolve(lang)
     opportunities = [a for a in analyses if a.actionable and a.plan is not None]
     opportunities.sort(key=lambda a: a.quality_score, reverse=True)
@@ -85,19 +120,29 @@ def render_report(analyses: list[SymbolAnalysis],
 
     blocks.append(t("top_opportunities", lang))
     if opportunities:
-        for i, analysis in enumerate(opportunities, start=1):
-            blocks.append(render_opportunity(i, analysis, lang))
+        shown = opportunities[:max_opportunities] if max_opportunities > 0 \
+            else opportunities
+        for i, analysis in enumerate(shown, start=1):
+            blocks.append(render_opportunity(i, analysis, lang,
+                                             full=i <= full_reasoning_for))
+            blocks.append("")
+        remaining = len(opportunities) - len(shown)
+        if remaining > 0:
+            blocks.append(t("more_opportunities", lang, n=remaining))
             blocks.append("")
     else:
         blocks.append(t("no_opportunities", lang))
         blocks.append("")
 
     blocks.append(t("watching", lang))
-    if watching:
-        blocks.extend(render_watching(a, lang) for a in watching)
-    else:
+    if not watching:
         blocks.append(t("nothing", lang))
+    elif compact_watching and len(watching) > 5:
+        blocks.extend(render_watching_grouped(watching, lang))
+    else:
+        blocks.extend(render_watching(a, lang) for a in watching)
 
     blocks.append("")
+    blocks.append(t("scanned", lang, n=len(analyses)))
     blocks.append(t("safety_note", lang))
     return "\n".join(blocks)
