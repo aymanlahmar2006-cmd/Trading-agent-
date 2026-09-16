@@ -76,6 +76,9 @@ T: dict[str, dict[str, str]] = {
     "confidence": {AR: "الثقة", EN: "Confidence"},
     "data_gaps": {AR: "⚠ نواقص في البيانات:", EN: "⚠ Data gaps:"},
     "notes": {AR: "ℹ ملاحظات:", EN: "ℹ Notes:"},
+    "cloud_above": {AR: "فوق السحابة", EN: "above the cloud"},
+    "cloud_inside": {AR: "داخل السحابة", EN: "inside the cloud"},
+    "cloud_below": {AR: "تحت السحابة", EN: "below the cloud"},
     "rr_net": {AR: "صافي", EN: "net"},
     "rr_gross_note": {
         AR: "قبل التكاليف — الرسوم والانزلاق بياخدوا",

@@ -153,16 +153,24 @@ engine's suggestion; the gap between the two is the interesting data.
   built on US equity fundamentals and equity breadth feeds. Not applicable to
   crypto and not used here.
 
-## Known gap — Ichimoku
+## Ichimoku
 
-If `chart_get_state` shows **Ichimoku Cloud**, the user reads price through the
-cloud and the engine does not: its trend call comes from EMAs, swing structure,
-RSI and MACD, and it never looks at Tenkan, Kijun, the cloud or the lagging span.
+The engine reads the cloud. It prefers the chart's own Tenkan, Kijun, Senkou A
+and Senkou B when `data_get_study_values` returns them, and otherwise computes
+them from the bars — with the 26-bar displacement applied, so the cloud it
+compares price against is the one actually drawn under the current candle.
 
-That is not a bug, but it means the engine can call a trend the user's own chart
-contradicts. Say so when presenting a setup on such a chart rather than letting
-the disagreement surprise them, and treat a conflict between the two as a reason
-to stand aside, not as the engine being right.
+Four inputs come from it: where price sits relative to the cloud (the heaviest
+single vote in the engine), the Tenkan/Kijun cross, the colour of the cloud
+ahead, and the lagging span against price 26 bars back.
+
+**Below or inside the cloud, no long is proposed** (`filters.ichimoku_veto`),
+even when every other signal agrees. That is how a chart carrying the cloud is
+read, and it means the engine never hands the user advice their own screen
+contradicts. The rejection names the cloud range, so it says what to wait for.
+
+A full reading needs 78 bars (52 + 26). `bars_to_pull` is 150, so this is only
+a constraint if someone lowers it.
 
 ## Known weakness — say this when presenting a setup
 

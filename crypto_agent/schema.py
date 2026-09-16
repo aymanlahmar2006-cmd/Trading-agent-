@@ -124,6 +124,18 @@ _STUDY_ALIASES = {
     "signal": "macd_signal",
     "atr": "atr",
     "average true range": "atr",
+    "conversion line": "tenkan",
+    "tenkan-sen": "tenkan",
+    "tenkan": "tenkan",
+    "base line": "kijun",
+    "kijun-sen": "kijun",
+    "kijun": "kijun",
+    "leading span a": "senkou_a",
+    "senkou span a": "senkou_a",
+    "leading span b": "senkou_b",
+    "senkou span b": "senkou_b",
+    "lagging span": "chikou",
+    "chikou span": "chikou",
 }
 
 

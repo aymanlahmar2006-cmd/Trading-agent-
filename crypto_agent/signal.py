@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
+from . import ichimoku as ichi
 from . import indicators as ind
 from .formatting import fmt_price
 from .schema import Snapshot
@@ -69,6 +70,9 @@ class SymbolAnalysis:
     notes: list[str] = field(default_factory=list)
     rejected_reason: str | None = None
     atr: float | None = None
+    # Where price sits relative to the cloud: above / inside / below, or "" when
+    # Ichimoku could not be read.
+    cloud_position: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -130,7 +134,9 @@ def _collect_votes(snap: Snapshot, emas: dict[str, float],
         values = [v for _, v in ordered]
         stacked_up = all(a > b for a, b in zip(values, values[1:]))
         stacked_down = all(a < b for a, b in zip(values, values[1:]))
-        label = " > ".join(f"{k}={fmt_price(v)}" for k, v in ordered)
+        parts = [f"{k}={fmt_price(v)}" for k, v in ordered]
+        separator = " > " if (stacked_up or stacked_down) else ", "
+        label = separator.join(parts)
         if stacked_up:
             votes.append(Vote("ema_stack", BULLISH,
                               f"EMAs stacked bullish ({label})", weight=1.5))
@@ -202,6 +208,58 @@ def _collect_votes(snap: Snapshot, emas: dict[str, float],
     return votes, warnings
 
 
+def _ichimoku_votes(reading: ichi.Ichimoku | None, price: float,
+                    source: str) -> tuple[list[Vote], list[str]]:
+    """Votes from the cloud, weighted by how a chart is actually read.
+
+    Where price sits relative to the cloud is the primary structural call in
+    Ichimoku, so it carries more weight than a single oscillator. The TK cross
+    and the cloud's own colour are confirmations, not the call.
+    """
+    if reading is None:
+        return [], ["Ichimoku unavailable -- not enough bars for the cloud "
+                    f"(needs {ichi.minimum_bars()})."]
+
+    votes: list[Vote] = []
+    position = reading.price_position(price)
+    cloud = (f"cloud {fmt_price(reading.cloud_bottom)}-"
+             f"{fmt_price(reading.cloud_top)} ({source})")
+
+    if position == ichi.ABOVE:
+        votes.append(Vote("ichimoku_cloud", BULLISH,
+                          f"Price {fmt_price(price)} above the {cloud}", weight=2.0))
+    elif position == ichi.BELOW:
+        votes.append(Vote("ichimoku_cloud", BEARISH,
+                          f"Price {fmt_price(price)} below the {cloud}", weight=2.0))
+    else:
+        votes.append(Vote("ichimoku_cloud", NEUTRAL,
+                          f"Price {fmt_price(price)} inside the {cloud} -- "
+                          "Ichimoku reads this as no trend", weight=2.0))
+
+    votes.append(Vote(
+        "ichimoku_tk",
+        BULLISH if reading.tk_bullish else BEARISH,
+        f"Tenkan {fmt_price(reading.tenkan)} "
+        f"{'above' if reading.tk_bullish else 'below'} "
+        f"Kijun {fmt_price(reading.kijun)}"))
+
+    votes.append(Vote(
+        "ichimoku_cloud_colour",
+        BULLISH if reading.cloud_is_bullish else BEARISH,
+        f"Cloud ahead is {'bullish' if reading.cloud_is_bullish else 'bearish'} "
+        f"(Senkou A {fmt_price(reading.senkou_a)} vs B "
+        f"{fmt_price(reading.senkou_b)})", weight=0.5))
+
+    if reading.chikou_above_past_price is not None:
+        votes.append(Vote(
+            "ichimoku_chikou",
+            BULLISH if reading.chikou_above_past_price else BEARISH,
+            f"Lagging span is {'above' if reading.chikou_above_past_price else 'below'} "
+            f"the price {ichi.DISPLACEMENT} bars back", weight=0.5))
+
+    return votes, []
+
+
 def _score_trend(votes: list[Vote]) -> tuple[str, str, float]:
     """Weighted vote tally -> (direction, strength label, agreement 0..1)."""
     if not votes:
@@ -242,7 +300,8 @@ def cost_in_r(entry: float, risk: float, risk_cfg: dict[str, Any]) -> float:
 
 
 def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
-                pivots: list[ind.Pivot], risk_cfg: dict[str, Any]
+                pivots: list[ind.Pivot], risk_cfg: dict[str, Any],
+                reading: ichi.Ichimoku | None = None
                 ) -> tuple[TradePlan | None, str | None]:
     """Build a long-only plan anchored on real levels. Returns (plan, reject)."""
     price = snap.quote.last
@@ -251,10 +310,15 @@ def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
     support_pool = [lv for lv in snap.pine_lines if lv < price]
     support_pool += [p.price for p in pivots if p.kind == "low" and p.price < price]
     support_pool += [v for v in emas.values() if v < price]
+    # Kijun and the cloud top are levels an Ichimoku trader leans on directly.
+    if reading is not None:
+        support_pool += ichi.support_levels(reading, price)
     supports = ind.dedupe_levels(support_pool, tolerance)
 
     resistance_pool = [lv for lv in snap.pine_lines if lv > price]
     resistance_pool += [p.price for p in pivots if p.kind == "high" and p.price > price]
+    if reading is not None:
+        resistance_pool += ichi.resistance_levels(reading, price)
     resistances = sorted(ind.dedupe_levels(resistance_pool, tolerance))
 
     if not supports:
@@ -383,6 +447,15 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
     votes, vote_warnings = _collect_votes(snap, emas, pivots)
     warnings.extend(vote_warnings)
 
+    reading = ichi.from_studies(snap.studies)
+    ichi_source = "chart studies"
+    if reading is None:
+        reading = ichi.compute(snap.bars)
+        ichi_source = "computed from bars"
+    ichi_votes, ichi_warnings = _ichimoku_votes(reading, snap.quote.last, ichi_source)
+    votes.extend(ichi_votes)
+    warnings.extend(ichi_warnings)
+
     trend, strength, agreement = _score_trend(votes)
 
     atr_value = snap.studies.get("atr")
@@ -403,12 +476,26 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
         warnings=warnings,
         notes=ema_notes,
         atr=atr_value,
+        cloud_position=("" if reading is None
+                        else reading.price_position(snap.quote.last)),
     )
 
     if atr_value is None:
         result.rejected_reason = (
             f"ATR unavailable: {len(snap.bars)} bars returned, need at least "
             f"{int(risk_cfg.get('atr_period', 14)) + 1}. Stops cannot be sized."
+        )
+        result.reasoning = [v.detail for v in votes]
+        return result
+
+    if (filters.get("ichimoku_veto", True) and reading is not None
+            and result.cloud_position != ichi.ABOVE):
+        where = "inside" if result.cloud_position == ichi.INSIDE else "below"
+        result.rejected_reason = (
+            f"Price {fmt_price(snap.quote.last)} is {where} the Ichimoku cloud "
+            f"({fmt_price(reading.cloud_bottom)}-{fmt_price(reading.cloud_top)}). "
+            "A chart with the cloud on it does not buy here, so the engine "
+            "stands aside rather than giving advice the chart contradicts."
         )
         result.reasoning = [v.detail for v in votes]
         return result
@@ -428,7 +515,7 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
         result.reasoning = [v.detail for v in votes]
         return result
 
-    plan, reject = _build_plan(snap, atr_value, emas, pivots, risk_cfg)
+    plan, reject = _build_plan(snap, atr_value, emas, pivots, risk_cfg, reading)
     aligned = sum(1 for v in votes if v.direction == trend)
     confidence = _confidence(agreement, aligned, plan, warnings, min_rr)
 
@@ -451,5 +538,9 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
             f"{plan.cost_in_r:.2f}R of fees and slippage."
         )
         reasoning.append(f"ATR({risk_cfg.get('atr_period', 14)}) = {fmt_price(atr_value)}.")
+    if reading is not None:
+        reasoning.append(
+            f"Ichimoku ({ichi_source}): price is {result.cloud_position} the cloud."
+        )
     result.reasoning = reasoning
     return result

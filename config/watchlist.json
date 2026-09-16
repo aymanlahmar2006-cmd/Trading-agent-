@@ -35,7 +35,10 @@
 
   "filters": {
     "min_confidence_to_report": "medium",
-    "long_only": true
+    "long_only": true,
+
+    "_ichimoku_comment": "Ichimoku does not buy below or inside the cloud. With this on, no long is proposed there even when the other signals agree -- so the engine never contradicts the chart you read.",
+    "ichimoku_veto": true
   },
 
   "alerts": {

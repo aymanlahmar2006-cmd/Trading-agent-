@@ -13,8 +13,9 @@ BULLISH_PULLBACK = [100, 108, 103, 114, 109, 120, 114]
 BEARISH = [126, 118, 122, 110, 114, 102, 106]
 
 
-def build(path, studies=None, pine_lines=None, last=None, symbol="BINANCE:TESTUSDT"):
-    bars = bars_from_path(path)
+def build(path, studies=None, pine_lines=None, last=None,
+          symbol="BINANCE:TESTUSDT", steps=6):
+    bars = bars_from_path(path, steps=steps)
     return parse_snapshot(make_snapshot(
         bars, last if last is not None else bars[-1]["close"],
         studies, pine_lines, symbol,
@@ -152,8 +153,9 @@ def test_computed_emas_are_a_note_not_a_data_gap():
     """A TradingView Basic account allows two indicators, so a user on that plan
     never has chart EMAs. Computing them from the same bars is equivalent, so it
     must not permanently cap their confidence."""
+    # Long enough for the Ichimoku cloud too, so no other gap is in play.
     snap = build(BULLISH_PULLBACK, {"RSI": 56.0, "MACD": 1.2, "Signal": 0.7},
-                 pine_lines=[126.0])
+                 pine_lines=[126.0], steps=14)
     result = analyse(snap, CONFIG)
 
     assert result.warnings == [], f"computed EMAs are not a gap: {result.warnings}"
@@ -176,3 +178,21 @@ def test_an_unreadable_value_lowers_confidence_like_a_gap():
                             {"RSI": 56.0, "MACD": "n/a"}, [126.0])
     result = analyse(parse_snapshot(payload), CONFIG)
     assert any("not a number" in w for w in result.warnings)
+
+
+def test_interleaved_emas_are_not_printed_as_an_ordering():
+    """Regression: the label joined EMAs with " > " whatever their order, so an
+    interleaved set printed a false claim like "115.509 > 115.716"."""
+    snap = build(BULLISH_PULLBACK, {"RSI": 56.0, "MACD": 1.2, "Signal": 0.7},
+                 pine_lines=[126.0], steps=14)
+    result = analyse(snap, CONFIG)
+    stack_vote = next(v for v in result.votes if v.name == "ema_stack")
+
+    if stack_vote.direction == "neutral":
+        assert " > " not in stack_vote.detail, stack_vote.detail
+    else:
+        # When it does claim an order, the order must hold.
+        import re
+        values = [float(x.replace(",", ""))
+                  for x in re.findall(r"=([\d,.]+)", stack_vote.detail)]
+        assert values == sorted(values, reverse=True) or values == sorted(values)
