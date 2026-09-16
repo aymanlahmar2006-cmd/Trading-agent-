@@ -34,10 +34,18 @@ so the arithmetic is reproducible and auditable.
 
 ### Step 0: confirm the connection
 Call `chart_get_state`. If it fails, stop and report the failure verbatim.
-Note which studies are on the chart — RSI, MACD and EMAs are optional and the
-engine flags them as missing, but adding them once via `chart_manage_indicator`
-(`"Relative Strength Index"`, `"MACD"`, `"Moving Average Exponential"`) beats
-running blind every pass.
+Note which studies are on the chart. On a **TradingView Basic account only two
+indicators fit**, and `chart_manage_indicator` is simply refused past that limit
+— so spend the slots where they count:
+
+| Priority | Indicator | Why |
+|---|---|---|
+| 1 | **RSI** | The engine cannot derive it; without it a vote is lost. |
+| 2 | **MACD** | Same — cannot be derived from the bars the engine pulls. |
+| — | EMAs | **Do not spend a slot.** The engine computes 9/21/50 from the same bars the chart draws; the values are equivalent and it is reported as a note, not a gap. |
+
+If the user keeps Ichimoku in a slot, say plainly that the engine does not read
+it (see **Known gap** below) and that RSI or MACD is losing the slot to it.
 
 ### Step 1: market context, once per scan
 Read `config/watchlist.json` for the symbols and timeframes; never hardcode them.
@@ -144,6 +152,17 @@ engine's suggestion; the gap between the two is the interesting data.
 - **Stock tooling** (`vcp-screener`, `CANSLIM`, `market-breadth-analyzer`) —
   built on US equity fundamentals and equity breadth feeds. Not applicable to
   crypto and not used here.
+
+## Known gap — Ichimoku
+
+If `chart_get_state` shows **Ichimoku Cloud**, the user reads price through the
+cloud and the engine does not: its trend call comes from EMAs, swing structure,
+RSI and MACD, and it never looks at Tenkan, Kijun, the cloud or the lagging span.
+
+That is not a bug, but it means the engine can call a trend the user's own chart
+contradicts. Say so when presenting a setup on such a chart rather than letting
+the disagreement surprise them, and treat a conflict between the two as a reason
+to stand aside, not as the engine being right.
 
 ## Known weakness — say this when presenting a setup
 
