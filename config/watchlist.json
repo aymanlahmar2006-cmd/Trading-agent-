@@ -146,12 +146,6 @@
       "slippage_pct": 0.12
     },
     {
-      "symbol": "BINANCE:MKRUSDT",
-      "enabled": true,
-      "tier": "mid",
-      "slippage_pct": 0.12
-    },
-    {
       "symbol": "BINANCE:GRTUSDT",
       "enabled": true,
       "tier": "mid",
@@ -248,11 +242,13 @@
     "min_quality_for_new_setup": 60.0,
     "stop_warn_pct": 25.0
   },
-  "_watchlist_comment": "tier and slippage_pct are per symbol: a mid-cap costs more to cross than BTC, and pretending otherwise makes its setups look tradeable when they are not. Set enabled:false to skip a symbol without deleting it. If a symbol does not load on your account the scan reports it rather than silently skipping it.",
+  "_watchlist_comment": "tier and slippage_pct are per symbol: a mid-cap costs more to cross than BTC, and pretending otherwise makes its setups look tradeable when they are not. Set enabled:false to skip a symbol without deleting it. If a symbol does not load on your account the scan reports it rather than silently skipping it. Symbols get delisted and renamed (MATIC->POL, FTM->S, MKR->SKY); if one stops loading the scan names it, and it belongs out of this list.",
   "report": {
     "_comment": "With a long watchlist the full reasoning for every candidate buries the ranking. The top few carry their reasoning; the rest show levels only, and rejected symbols collapse to one line per reason.",
     "max_opportunities": 5,
     "compact_watching": true,
-    "full_reasoning_for": 2
+    "full_reasoning_for": 2,
+    "show_near_misses": true,
+    "max_near_misses": 5
   }
 }

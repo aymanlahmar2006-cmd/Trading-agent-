@@ -116,3 +116,73 @@ def test_the_shipped_config_report_settings_are_usable():
                 if not k.startswith("_")}
     good = [analyse_symbol(f"BINANCE:X{i}USDT") for i in range(3)]
     render_report(good, {}, lang="en", **settings)
+
+
+def _near_miss_config():
+    """Confidence bar raised to high, so a medium setup lands as a near miss."""
+    config = json.loads(json.dumps(LIVE_CONFIG))
+    config["filters"]["min_confidence_to_report"] = "high"
+    return config
+
+
+def test_a_valid_setup_under_the_confidence_bar_is_shown_not_buried():
+    """The user asked not to miss opportunities. Collapsing a real setup into
+    the same group as symbols the market never offered does exactly that."""
+    config = _near_miss_config()
+    results = [analyse_symbol(f"BINANCE:X{i}USDT", config=config) for i in range(3)]
+    for r in results:
+        r.confidence = "medium"
+        r.actionable = False
+        r.rejected_kind = "low_confidence"
+
+    report = render_report(results, {}, lang="en", show_near_misses=True)
+
+    assert "Near misses" in report
+    # Their actual levels are shown, not just their names.
+    assert report.count("R:R") >= 3
+    assert "Not recommendations" in report
+
+
+def test_near_misses_are_ranked_and_capped():
+    config = _near_miss_config()
+    results = []
+    for i in range(8):
+        r = analyse_symbol(f"BINANCE:X{i}USDT", config=config)
+        r.confidence, r.actionable, r.rejected_kind = "medium", False, "low_confidence"
+        r.quality_score = float(i)
+        results.append(r)
+
+    report = render_report(results, {}, lang="en", show_near_misses=True,
+                           max_near_misses=3)
+    # The header itself ends in "===", so slice after it, not at it.
+    near = report.split("lower confidence) ===")[1].split("=== Watching")[0]
+
+    assert "X7USDT" in near and "X0USDT" not in near, "highest quality first"
+    assert "and 5 more near the threshold" in report
+
+
+def test_near_misses_do_not_also_appear_in_the_watch_list():
+    config = _near_miss_config()
+    r = analyse_symbol("BINANCE:X0USDT", config=config)
+    r.confidence, r.actionable, r.rejected_kind = "medium", False, "low_confidence"
+    report = render_report([r], {}, lang="en", show_near_misses=True)
+
+    watching = report.split("=== Watching")[1]
+    assert "X0USDT" not in watching
+
+
+def test_the_section_can_be_switched_off():
+    config = _near_miss_config()
+    r = analyse_symbol("BINANCE:X0USDT", config=config)
+    r.confidence, r.actionable, r.rejected_kind = "medium", False, "low_confidence"
+    report = render_report([r], {}, lang="en", show_near_misses=False)
+
+    assert "Near misses" not in report
+    assert "X0USDT" in report, "still reported, just in the watch list"
+
+
+def test_actionable_setups_never_land_in_near_misses():
+    good = [analyse_symbol(f"BINANCE:X{i}USDT") for i in range(3)]
+    assert all(a.actionable for a in good)
+    report = render_report(good, {}, lang="en", show_near_misses=True)
+    assert "Near misses" not in report

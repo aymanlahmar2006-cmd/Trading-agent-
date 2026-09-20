@@ -102,11 +102,28 @@ def render_watching_grouped(analyses: list[SymbolAnalysis], lang: str) -> list[s
     return lines
 
 
+def render_near_miss(analysis: SymbolAnalysis, lang: str) -> str:
+    """A setup that stands but did not clear the confidence bar."""
+    plan = analysis.plan
+    assert plan is not None
+    entry = (fmt_price(plan.entry_low)
+             if abs(plan.entry_high - plan.entry_low) < 1e-12
+             else f"{fmt_price(plan.entry_low)}–{fmt_price(plan.entry_high)}")
+    return (f"- {_short_symbol(analysis.symbol)}: {t('entry', lang)} {entry} | "
+            f"{t('stop', lang)} {fmt_price(plan.stop)} | "
+            f"{t('target', lang)} {fmt_price(plan.target)} | "
+            f"R:R {plan.net_risk_reward:.2f} {t('rr_net', lang)} | "
+            f"{t('confidence', lang)}: {t(analysis.confidence, lang)} "
+            f"({analysis.quality_score:.0f}/100)")
+
+
 def render_report(analyses: list[SymbolAnalysis],
                   market_context: dict[str, Any] | None = None,
                   lang: str = "auto", max_opportunities: int = 5,
                   compact_watching: bool = True,
-                  full_reasoning_for: int = 2) -> str:
+                  full_reasoning_for: int = 2,
+                  show_near_misses: bool = True,
+                  max_near_misses: int = 5) -> str:
     lang = resolve(lang)
     opportunities = [a for a in analyses if a.actionable and a.plan is not None]
     opportunities.sort(key=lambda a: a.quality_score, reverse=True)
@@ -114,7 +131,19 @@ def render_report(analyses: list[SymbolAnalysis],
     # symbols that happen to score identically would compare equal and one would
     # vanish from the watch list entirely.
     promoted = {id(a) for a in opportunities}
-    watching = [a for a in analyses if id(a) not in promoted]
+    rest = [a for a in analyses if id(a) not in promoted]
+
+    # A setup that is real but under the confidence bar is not the same as one
+    # the market never offered. Collapsing both into "watching" hides the only
+    # candidates worth a second look, which is the opposite of not missing one.
+    near_misses: list[SymbolAnalysis] = []
+    if show_near_misses:
+        near_misses = [a for a in rest
+                       if a.plan is not None and a.rejected_kind == "low_confidence"]
+        near_misses.sort(key=lambda a: a.quality_score, reverse=True)
+        near_ids = {id(a) for a in near_misses}
+        rest = [a for a in rest if id(a) not in near_ids]
+    watching = rest
 
     blocks = [render_market_context(market_context or {}, lang), ""]
 
@@ -132,6 +161,17 @@ def render_report(analyses: list[SymbolAnalysis],
             blocks.append("")
     else:
         blocks.append(t("no_opportunities", lang))
+        blocks.append("")
+
+    if near_misses:
+        blocks.append(t("near_misses", lang))
+        shown_near = near_misses[:max_near_misses] if max_near_misses > 0 \
+            else near_misses
+        blocks.extend(render_near_miss(a, lang) for a in shown_near)
+        left = len(near_misses) - len(shown_near)
+        if left > 0:
+            blocks.append(t("more_near_misses", lang, n=left))
+        blocks.append(t("near_miss_note", lang))
         blocks.append("")
 
     blocks.append(t("watching", lang))

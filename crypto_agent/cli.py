@@ -101,7 +101,9 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     print(render_report(analyses, raw_context, lang=lang,
                         max_opportunities=int(report_cfg.get("max_opportunities", 5)),
                         compact_watching=bool(report_cfg.get("compact_watching", True)),
-                        full_reasoning_for=int(report_cfg.get("full_reasoning_for", 2))))
+                        full_reasoning_for=int(report_cfg.get("full_reasoning_for", 2)),
+                        show_near_misses=bool(report_cfg.get("show_near_misses", True)),
+                        max_near_misses=int(report_cfg.get("max_near_misses", 5))))
     _print_failures(failures, lang)
 
     if args.json_out:
@@ -165,7 +167,9 @@ def cmd_watch(args: argparse.Namespace) -> int:
     print(render_report(analyses, current.to_context(lang), lang=lang,
                         max_opportunities=int(report_cfg.get("max_opportunities", 5)),
                         compact_watching=bool(report_cfg.get("compact_watching", True)),
-                        full_reasoning_for=int(report_cfg.get("full_reasoning_for", 2))))
+                        full_reasoning_for=int(report_cfg.get("full_reasoning_for", 2)),
+                        show_near_misses=bool(report_cfg.get("show_near_misses", True)),
+                        max_near_misses=int(report_cfg.get("max_near_misses", 5))))
     _print_failures(failures, lang)
 
     print("\n" + t("alerts_header", lang))

@@ -95,6 +95,18 @@ T: dict[str, dict[str, str]] = {
         EN: "and {n} more opportunities below the display limit.",
     },
     "scanned": {AR: "تم فحص {n} رمز.", EN: "Scanned {n} symbols."},
+    "near_misses": {
+        AR: "=== قريبة من الحد (إعداد صالح، ثقة أقل) ===",
+        EN: "=== Near misses (valid setup, lower confidence) ===",
+    },
+    "near_miss_note": {
+        AR: "دي مش توصيات. الإعداد قائم لكن الإشارات مش متوافقة كفاية — راجعها بنفسك على الشارت.",
+        EN: "Not recommendations. The setup stands but the signals agree less — check these on the chart yourself.",
+    },
+    "more_near_misses": {
+        AR: "و{n} أخرى قريبة من الحد.",
+        EN: "and {n} more near the threshold.",
+    },
     "cloud_inside": {AR: "داخل السحابة", EN: "inside the cloud"},
     "cloud_below": {AR: "تحت السحابة", EN: "below the cloud"},
     "rr_net": {AR: "صافي", EN: "net"},
