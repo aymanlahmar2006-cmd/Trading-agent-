@@ -13,7 +13,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
+from . import fibonacci as fib
 from . import ichimoku as ichi
+from . import liquidity as liq
 from . import indicators as ind
 from .formatting import fmt_price
 from .schema import Snapshot
@@ -265,6 +267,76 @@ def _ichimoku_votes(reading: ichi.Ichimoku | None, price: float,
     return votes, []
 
 
+def _fib_votes(swing: "fib.FibSwing | None", price: float) -> list[Vote]:
+    """Where price sits in the last measured leg.
+
+    The golden band is where a trend pullback usually ends, so price sitting in
+    it during an up-leg is the entry condition this style waits for -- not a
+    prediction, a location.
+    """
+    if swing is None:
+        return []
+
+    fraction = swing.retracement_of(price)
+    if fraction is None:
+        return []
+    low, high = swing.golden_band
+    band = f"{fmt_price(low)}-{fmt_price(high)}"
+
+    if swing.direction == "up":
+        if swing.in_golden_zone(price):
+            return [Vote("fib_zone", BULLISH,
+                         f"Pullback is {fraction:.0%} of the last up-leg, inside "
+                         f"the 0.5-0.618 band ({band})", weight=1.5)]
+        if fraction > 0.786:
+            return [Vote("fib_zone", BEARISH,
+                         f"Pullback is {fraction:.0%} of the last up-leg -- past "
+                         "0.786 the leg is failing, not resting", weight=1.5)]
+        return [Vote("fib_zone", NEUTRAL,
+                     f"Pullback is {fraction:.0%} of the last up-leg, outside the "
+                     f"0.5-0.618 band ({band})", weight=1.0)]
+
+    if fraction >= 0.618:
+        return [Vote("fib_zone", BULLISH,
+                     f"Price has recovered {fraction:.0%} of the last down-leg",
+                     weight=1.0)]
+    return [Vote("fib_zone", BEARISH,
+                 f"Price has recovered only {fraction:.0%} of the last down-leg",
+                 weight=1.0)]
+
+
+def _liquidity_votes(pools: list[liq.Pool], sweep: "liq.Pool | None",
+                     price: float) -> list[Vote]:
+    """What the resting orders say."""
+    votes: list[Vote] = []
+
+    if sweep is not None:
+        votes.append(Vote("liquidity_sweep", BULLISH,
+                          f"Stops below {fmt_price(sweep.price)} were taken and "
+                          "price closed back above -- a sweep, not a break",
+                          weight=1.5))
+
+    above = liq.nearest_pool(pools, liq.BUY_SIDE)
+    below = liq.nearest_pool(pools, liq.SELL_SIDE)
+    if above is not None and below is not None:
+        to_above = abs(above.price - price)
+        to_below = abs(price - below.price)
+        if to_above > 0 and to_below > 0:
+            # Price tends toward the larger, closer pool; the nearer one is the
+            # likelier next destination.
+            if to_below < to_above * 0.6:
+                votes.append(Vote("liquidity_draw", BEARISH,
+                                  f"Nearest liquidity is below at "
+                                  f"{fmt_price(below.price)}, closer than "
+                                  f"{fmt_price(above.price)} above"))
+            elif to_above < to_below * 0.6:
+                votes.append(Vote("liquidity_draw", BULLISH,
+                                  f"Nearest liquidity is above at "
+                                  f"{fmt_price(above.price)}, closer than "
+                                  f"{fmt_price(below.price)} below"))
+    return votes
+
+
 def _score_trend(votes: list[Vote]) -> tuple[str, str, float]:
     """Weighted vote tally -> (direction, strength label, agreement 0..1)."""
     if not votes:
@@ -306,11 +378,14 @@ def cost_in_r(entry: float, risk: float, risk_cfg: dict[str, Any]) -> float:
 
 def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
                 pivots: list[ind.Pivot], risk_cfg: dict[str, Any],
-                reading: ichi.Ichimoku | None = None
+                reading: ichi.Ichimoku | None = None,
+                swing: "fib.FibSwing | None" = None,
+                pools: list[liq.Pool] | None = None
                 ) -> tuple[TradePlan | None, str | None, str]:
     """Build a long-only plan anchored on real levels. Returns (plan, reject)."""
     price = snap.quote.last
     tolerance = atr_value * 0.25
+    pools = pools or []
 
     support_pool = [lv for lv in snap.pine_lines if lv < price]
     support_pool += [p.price for p in pivots if p.kind == "low" and p.price < price]
@@ -318,12 +393,18 @@ def _build_plan(snap: Snapshot, atr_value: float, emas: dict[str, float],
     # Kijun and the cloud top are levels an Ichimoku trader leans on directly.
     if reading is not None:
         support_pool += ichi.support_levels(reading, price)
+    if swing is not None:
+        support_pool += fib.support_levels(swing, price)
     supports = ind.dedupe_levels(support_pool, tolerance)
 
     resistance_pool = [lv for lv in snap.pine_lines if lv > price]
     resistance_pool += [p.price for p in pivots if p.kind == "high" and p.price > price]
     if reading is not None:
         resistance_pool += ichi.resistance_levels(reading, price)
+    if swing is not None:
+        resistance_pool += fib.resistance_levels(swing, price)
+    # Buy-side pools are where price is drawn, so they make honest targets.
+    resistance_pool += [p.price for p in pools if p.side == liq.BUY_SIDE]
     resistances = sorted(ind.dedupe_levels(resistance_pool, tolerance))
 
     if not supports:
@@ -469,26 +550,45 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
     votes, vote_warnings = _collect_votes(snap, emas, pivots)
     warnings.extend(vote_warnings)
 
-    reading = ichi.from_studies(snap.studies)
-    ichi_source = "chart studies"
-    if reading is None:
-        reading = ichi.compute(snap.bars)
-        ichi_source = "computed from bars"
-    # Two separate levers. The veto blocks a trade outright; the weight decides
-    # how much the cloud moves the trend vote. Turning only the veto off leaves
-    # a heavy neutral vote still suppressing confidence, so the setups a user
-    # expected to see stay hidden -- a switch that does not do what it says.
-    ichi_votes, ichi_warnings = _ichimoku_votes(
-        reading, snap.quote.last, ichi_source,
-        weight=float(filters.get("ichimoku_weight", 2.0)))
-    votes.extend(ichi_votes)
-    warnings.extend(ichi_warnings)
-
-    trend, strength, agreement = _score_trend(votes)
+    reading = None
+    ichi_source = ""
+    if filters.get("ichimoku_enabled", False):
+        reading = ichi.from_studies(snap.studies)
+        ichi_source = "chart studies"
+        if reading is None:
+            reading = ichi.compute(snap.bars)
+            ichi_source = "computed from bars"
+        # Two separate levers. The veto blocks a trade outright; the weight
+        # decides how much the cloud moves the trend vote. Turning only the veto
+        # off leaves a heavy neutral vote still suppressing confidence, so the
+        # setups a user expected to see stay hidden.
+        ichi_votes, ichi_warnings = _ichimoku_votes(
+            reading, snap.quote.last, ichi_source,
+            weight=float(filters.get("ichimoku_weight", 2.0)))
+        votes.extend(ichi_votes)
+        warnings.extend(ichi_warnings)
 
     atr_value = snap.studies.get("atr")
     if atr_value is None:
         atr_value = ind.atr(snap.bars, int(risk_cfg.get("atr_period", 14)))
+
+    swing = None
+    pools: list[liq.Pool] = []
+    sweep = None
+    if atr_value is not None:
+        if filters.get("fibonacci_enabled", True):
+            swing = fib.last_swing(pivots, snap.bars, atr=atr_value)
+            votes.extend(_fib_votes(swing, snap.quote.last))
+            if swing is None:
+                warnings.append(
+                    "No swing large enough to measure Fibonacci from -- levels "
+                    "drawn on noise are worse than none.")
+        if filters.get("liquidity_enabled", True):
+            pools = liq.find_pools(snap.bars, pivots, snap.quote.last, atr_value)
+            sweep = liq.recent_sweep(snap.bars, pivots, snap.quote.last, atr_value)
+            votes.extend(_liquidity_votes(pools, sweep, snap.quote.last))
+
+    trend, strength, agreement = _score_trend(votes)
 
     result = SymbolAnalysis(
         symbol=snap.symbol,
@@ -549,13 +649,22 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
         return result
 
     plan, reject, reject_kind = _build_plan(
-        snap, atr_value, emas, pivots, risk_cfg, reading)
+        snap, atr_value, emas, pivots, risk_cfg, reading, swing, pools)
     aligned = sum(1 for v in votes if v.direction == trend)
     confidence = _confidence(agreement, aligned, plan, warnings, min_rr)
 
     result.plan = plan
     result.rejected_reason = reject
     result.rejected_kind = reject_kind
+
+    if plan is not None and pools:
+        hazard = liq.stop_hazard(pools, plan.stop, atr_value)
+        if hazard is not None:
+            warnings.append(
+                f"Stop {fmt_price(plan.stop)} sits just above untouched stops at "
+                f"{fmt_price(hazard.price)} ({hazard.touches} equal lows). A move "
+                "collecting those takes this stop on the way."
+            )
     result.confidence = confidence
     result.quality_score = _quality_score(agreement, plan, confidence, warnings)
     result.actionable = plan is not None and CONFIDENCE_ORDER[confidence] >= \
@@ -583,5 +692,22 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
         reasoning.append(
             f"Ichimoku ({ichi_source}): price is {result.cloud_position} the cloud."
         )
+    if swing is not None:
+        low, high = swing.golden_band
+        reasoning.append(
+            f"Fib leg {fmt_price(swing.low)}-{fmt_price(swing.high)} "
+            f"({swing.direction}), 0.5-0.618 band {fmt_price(low)}-{fmt_price(high)}."
+        )
+    if pools:
+        below = liq.nearest_pool(pools, liq.SELL_SIDE)
+        above = liq.nearest_pool(pools, liq.BUY_SIDE)
+        parts = []
+        if below is not None:
+            parts.append(f"{fmt_price(below.price)} below"
+                         + (" (swept)" if below.swept else ""))
+        if above is not None:
+            parts.append(f"{fmt_price(above.price)} above")
+        if parts:
+            reasoning.append("Liquidity: " + ", ".join(parts) + ".")
     result.reasoning = reasoning
     return result

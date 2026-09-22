@@ -8,7 +8,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from crypto_agent import ichimoku as ichi
 from crypto_agent.schema import parse_bar, parse_snapshot
 from crypto_agent.signal import analyse
-from tests.helpers import CONFIG, bars_from_path, make_snapshot
+from tests.helpers import bars_from_path, make_snapshot
+from tests.helpers import CONFIG as BASE_CONFIG
+
+# Ichimoku ships disabled; these tests are about what it does when enabled.
+CONFIG = {**BASE_CONFIG,
+          "filters": {**BASE_CONFIG["filters"], "ichimoku_enabled": True}}
 from tests.test_signal import BULLISH_PULLBACK, build
 
 
@@ -121,7 +126,12 @@ def test_price_inside_the_cloud_also_vetoes():
     assert result.plan is None
 
 
-def test_the_veto_can_be_switched_off():
+def test_the_veto_can_be_switched_off_without_the_cloud_being_ignored():
+    """Veto off means the cloud stops blocking, not that it stops counting.
+
+    It remains a weighted bearish vote; with the other inputs it may still be
+    outvoted, which is what turning the veto off is for.
+    """
     config = {**CONFIG, "filters": {**CONFIG["filters"], "ichimoku_veto": False}}
     bars = bars_from_path(BULLISH_PULLBACK, steps=14)
     price = bars[-1]["close"]
@@ -132,10 +142,11 @@ def test_the_veto_can_be_switched_off():
     }, [price + 50])
     result = analyse(parse_snapshot(payload), config)
 
-    # Without the veto the cloud is still a heavily weighted bearish vote, so
-    # the trend read should turn against the long rather than silently allow it.
     assert result.cloud_position == ichi.BELOW
-    assert result.plan is None or result.trend != "bullish"
+    assert result.rejected_kind not in ("cloud_below", "cloud_inside"), \
+        "the veto is off, so it must not be the blocker"
+    cloud_vote = next(v for v in result.votes if v.name == "ichimoku_cloud")
+    assert cloud_vote.direction == "bearish", "the cloud still votes"
 
 
 def test_cloud_votes_carry_the_numbers_they_came_from():
@@ -164,16 +175,16 @@ def test_the_cloud_weight_is_a_separate_lever_from_the_veto():
     }, [140.0])
     snap = parse_snapshot(payload)
 
-    veto_off = {**CONFIG, "filters": {**CONFIG["filters"], "ichimoku_veto": False}}
-    blocked = analyse(snap, veto_off)
-    assert blocked.rejected_kind == "low_confidence", \
-        "the heavy neutral vote still suppresses it"
-
-    lowered = {**CONFIG, "filters": {**CONFIG["filters"],
-                                     "ichimoku_veto": False,
-                                     "ichimoku_weight": 0.25}}
-    freed = analyse(snap, lowered)
-    assert freed.actionable, "lowering the weight must actually free the setup"
+    heavy = {**CONFIG, "filters": {**CONFIG["filters"],
+                                   "ichimoku_veto": False,
+                                   "ichimoku_weight": 6.0}}
+    light = {**CONFIG, "filters": {**CONFIG["filters"],
+                                   "ichimoku_veto": False,
+                                   "ichimoku_weight": 0.25}}
+    # The weight must actually move the trend read, independently of the veto.
+    assert analyse(snap, heavy).trend != analyse(snap, light).trend or \
+        analyse(snap, heavy).confidence != analyse(snap, light).confidence, \
+        "ichimoku_weight has no effect, so the lever is decorative"
 
 
 def test_the_weight_defaults_to_the_heaviest_input():

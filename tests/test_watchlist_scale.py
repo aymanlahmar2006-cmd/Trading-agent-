@@ -88,9 +88,12 @@ def test_a_short_watch_list_still_shows_each_reason_in_full():
     rejected = [analyse_symbol(f"BINANCE:X{i}USDT", path=BEARISH) for i in range(3)]
     report = render_report(rejected, {}, lang="en", compact_watching=True)
 
-    assert report.count("Ichimoku cloud") == 3, "each symbol keeps its own reason"
-    # The prose carries the actual cloud range, which a grouped line cannot.
-    assert "113.6" in report
+    # Each symbol keeps its own prose reason rather than a shared group line.
+    lines = [ln for ln in report.split("=== Watching")[1].splitlines()
+             if ln.startswith("- ")]
+    assert len(lines) == 3
+    assert all(len(ln) > 40 for ln in lines), \
+        f"a grouped line would be short; got {lines}"
 
 
 def test_opportunities_beyond_the_limit_are_counted_not_dropped():

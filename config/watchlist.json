@@ -229,11 +229,15 @@
     "max_cost_in_r": 0.25
   },
   "filters": {
-    "min_confidence_to_report": "medium",
-    "long_only": true,
-    "_ichimoku_comment": "Two separate levers. ichimoku_veto blocks a long below or inside the cloud. ichimoku_weight is how much the cloud moves the trend vote -- at 2.0 it is the heaviest input, so a neutral (inside-cloud) reading also drags confidence down. Turning the veto off alone changes little; to actually see those setups, lower the weight too. Use `replay` to measure either change against your own logged scans before keeping it.",
+    "_analysis_comment": "Fibonacci measures the last confirmed swing and refuses a leg smaller than 1.5 ATR. Liquidity finds pivot clusters (equal highs/lows) where stops rest, flags a sweep-and-reclaim, and warns when a proposed stop sits just above untouched stops.",
+    "_ichimoku_comment": "Ichimoku is OFF by default. It was the binding filter (74% of rejections on a live 34-symbol scan) and was removed at the user's request. The code and its tests remain, so `replay --set filters.ichimoku_enabled=true` can measure it against real scans rather than argue about it. Two levers when on: ichimoku_veto blocks the trade; ichimoku_weight is how much the cloud moves the trend vote.",
+    "fibonacci_enabled": true,
+    "ichimoku_enabled": false,
     "ichimoku_veto": true,
-    "ichimoku_weight": 2.0
+    "ichimoku_weight": 2.0,
+    "liquidity_enabled": true,
+    "long_only": true,
+    "min_confidence_to_report": "medium"
   },
   "alerts": {
     "_comment": "Credentials come from the environment (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID), never from this file.",
