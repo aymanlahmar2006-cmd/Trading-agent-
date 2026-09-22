@@ -211,7 +211,8 @@ def _collect_votes(snap: Snapshot, emas: dict[str, float],
 
 
 def _ichimoku_votes(reading: ichi.Ichimoku | None, price: float,
-                    source: str) -> tuple[list[Vote], list[str]]:
+                    source: str, weight: float = 2.0
+                    ) -> tuple[list[Vote], list[str]]:
     """Votes from the cloud, weighted by how a chart is actually read.
 
     Where price sits relative to the cloud is the primary structural call in
@@ -229,14 +230,16 @@ def _ichimoku_votes(reading: ichi.Ichimoku | None, price: float,
 
     if position == ichi.ABOVE:
         votes.append(Vote("ichimoku_cloud", BULLISH,
-                          f"Price {fmt_price(price)} above the {cloud}", weight=2.0))
+                          f"Price {fmt_price(price)} above the {cloud}",
+                          weight=weight))
     elif position == ichi.BELOW:
         votes.append(Vote("ichimoku_cloud", BEARISH,
-                          f"Price {fmt_price(price)} below the {cloud}", weight=2.0))
+                          f"Price {fmt_price(price)} below the {cloud}",
+                          weight=weight))
     else:
         votes.append(Vote("ichimoku_cloud", NEUTRAL,
                           f"Price {fmt_price(price)} inside the {cloud} -- "
-                          "Ichimoku reads this as no trend", weight=2.0))
+                          "Ichimoku reads this as no trend", weight=weight))
 
     votes.append(Vote(
         "ichimoku_tk",
@@ -449,13 +452,14 @@ def watchlist_entry(symbol: str, config: dict[str, Any]) -> dict[str, Any]:
 def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
     """Turn one collected snapshot into a structured, spot-only analysis."""
     risk_cfg = dict(config.get("risk", {}))
+    filters = config.get("filters", {})
 
     # A mid-cap costs several times what BTC costs to cross. Using one slippage
     # figure for the whole watchlist makes thin markets look tradeable.
     entry = watchlist_entry(snap.symbol, config)
     if entry.get("slippage_pct") is not None:
         risk_cfg["slippage_pct"] = entry["slippage_pct"]
-    filters = config.get("filters", {})
+
     min_rr = float(risk_cfg.get("min_risk_reward", 1.5))
 
     warnings = list(snap.errors)
@@ -470,7 +474,13 @@ def analyse(snap: Snapshot, config: dict[str, Any]) -> SymbolAnalysis:
     if reading is None:
         reading = ichi.compute(snap.bars)
         ichi_source = "computed from bars"
-    ichi_votes, ichi_warnings = _ichimoku_votes(reading, snap.quote.last, ichi_source)
+    # Two separate levers. The veto blocks a trade outright; the weight decides
+    # how much the cloud moves the trend vote. Turning only the veto off leaves
+    # a heavy neutral vote still suppressing confidence, so the setups a user
+    # expected to see stay hidden -- a switch that does not do what it says.
+    ichi_votes, ichi_warnings = _ichimoku_votes(
+        reading, snap.quote.last, ichi_source,
+        weight=float(filters.get("ichimoku_weight", 2.0)))
     votes.extend(ichi_votes)
     warnings.extend(ichi_warnings)
 

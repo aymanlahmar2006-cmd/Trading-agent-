@@ -231,8 +231,9 @@
   "filters": {
     "min_confidence_to_report": "medium",
     "long_only": true,
-    "_ichimoku_comment": "Ichimoku does not buy below or inside the cloud. With this on, no long is proposed there even when the other signals agree -- so the engine never contradicts the chart you read.",
-    "ichimoku_veto": true
+    "_ichimoku_comment": "Two separate levers. ichimoku_veto blocks a long below or inside the cloud. ichimoku_weight is how much the cloud moves the trend vote -- at 2.0 it is the heaviest input, so a neutral (inside-cloud) reading also drags confidence down. Turning the veto off alone changes little; to actually see those setups, lower the weight too. Use `replay` to measure either change against your own logged scans before keeping it.",
+    "ichimoku_veto": true,
+    "ichimoku_weight": 2.0
   },
   "alerts": {
     "_comment": "Credentials come from the environment (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID), never from this file.",

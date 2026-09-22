@@ -22,7 +22,9 @@ import json
 import sys
 from pathlib import Path
 
+from . import diagnose as diag
 from . import positions as pos
+from .positions import utc_now as utc_stamp
 from . import regime as rg
 from .alerts import collect
 from .formatting import fmt_price
@@ -183,6 +185,14 @@ def cmd_watch(args: argparse.Namespace) -> int:
     append_csv(analyses, Path("logs/signals.csv"))
     rg.save(current)
 
+    # Keep the raw input. Without it, "is this filter too strict?" can only be
+    # answered by opinion; with it, the question is a replay.
+    archive = Path("snapshots") / f"{(collected_at or utc_stamp()).replace(':', '-')}.json"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    if not archive.exists():
+        archive.write_text(Path(args.snapshot).read_text(encoding="utf-8"),
+                           encoding="utf-8")
+
     if shown and not args.no_notify:
         message_lang = str(alert_cfg.get("language", "ar"))
         to_send = collect(analyses, book, prices, previous, current,
@@ -310,6 +320,118 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _set_path(config: dict, dotted: str, raw: str) -> None:
+    """Apply ``a.b=value`` to a config, guessing the literal type."""
+    value: Any = raw
+    if raw.lower() in ("true", "false"):
+        value = raw.lower() == "true"
+    else:
+        try:
+            value = float(raw) if "." in raw else int(raw)
+        except ValueError:
+            pass
+    node = config
+    parts = dotted.split(".")
+    for part in parts[:-1]:
+        node = node.setdefault(part, {})
+    node[parts[-1]] = value
+
+
+def cmd_diagnose(args: argparse.Namespace) -> int:
+    """What the logged scans say about the filters."""
+    lang = resolve(args.lang)
+    records = diag.load_log()
+    if not records:
+        print("No scans logged yet. Run `watch` a few times first "
+              "(logs/signals.jsonl).", file=sys.stderr)
+        return 1
+
+    summary = diag.summarise(records)
+    print("=== Scans logged ===")
+    print(f"{summary['scans']} scans, {summary['evaluations']} symbol evaluations, "
+          f"{summary['symbols']} symbols")
+    print(f"from {summary['first_scan']} to {summary['last_scan']}")
+    print(f"actionable setups: {summary['actionable']}")
+
+    print("\n=== What rejected them ===")
+    counts = diag.rejection_counts(records)
+    total = sum(counts.values())
+    for kind, n in counts.most_common():
+        print(f"{kind:<34} {n:>5}  {n / total * 100:>5.1f}%")
+
+    print(f"\n=== What happened {args.horizon} scans later ===")
+    print("A gate whose rejections then rose is costing money, whatever its "
+          "reasoning sounds like.\n")
+    outcomes = diag.what_happened_next(records, horizon=args.horizon)
+    print(f"{'gate':<34} {'n':>5} {'measured':>9} {'mean move':>10}  verdict")
+    print("-" * 86)
+    for outcome in outcomes:
+        print(f"{outcome.kind:<34} {outcome.count:>5} {outcome.measured:>9} "
+              f"{outcome.mean_move_pct:>9.2f}%  {outcome.verdict}")
+
+    if all(o.measured < 5 for o in outcomes):
+        print("\nToo few repeat observations to judge any gate yet. Each scan "
+              "adds data; check back after a day or two of scanning.")
+    return 0
+
+
+def cmd_replay(args: argparse.Namespace) -> int:
+    """Re-run archived snapshots under a changed config and compare."""
+    lang = resolve(args.lang)
+    base = load_config(Path(args.config))
+    snapshots = diag.archived_snapshots()
+    if not snapshots:
+        print("No archived snapshots yet. `watch` saves one per scan into "
+              "snapshots/; run it a few times first.", file=sys.stderr)
+        return 1
+
+    changed = json.loads(json.dumps(base))
+    for assignment in args.set or []:
+        if "=" not in assignment:
+            print(f"Bad --set (expected key=value): {assignment}", file=sys.stderr)
+            return 1
+        key, raw = assignment.split("=", 1)
+        _set_path(changed, key.strip(), raw.strip())
+
+    def run(config: dict) -> tuple[int, list[str]]:
+        actionable: list[str] = []
+        for path in snapshots:
+            for raw in load_snapshots(path):
+                try:
+                    snapshot = parse_snapshot(raw)
+                except SnapshotError:
+                    continue
+                result = analyse(snapshot, config)
+                if result.actionable:
+                    actionable.append(f"{snapshot.symbol.split(':')[-1]} "
+                                      f"@{snapshot.collected_at}")
+        return len(actionable), actionable
+
+    before_count, _ = run(base)
+    after_count, after_list = run(changed)
+
+    print(f"=== Replay over {len(snapshots)} archived scans ===")
+    for assignment in args.set or []:
+        print(f"changed: {assignment}")
+    print(f"\nsetups with the current config : {before_count}")
+    print(f"setups with the change         : {after_count}")
+
+    difference = after_count - before_count
+    if difference > 0:
+        print(f"\nThe change would have produced {difference} more setups:")
+        for line in after_list[:20]:
+            print(f"  - {line}")
+        if len(after_list) > 20:
+            print(f"  ... and {len(after_list) - 20} more")
+        print("\nMore setups is not better on its own. Check what those symbols "
+              "did next before loosening anything for real.")
+    elif difference < 0:
+        print(f"\nThe change would have produced {-difference} fewer setups.")
+    else:
+        print("\nNo difference on this data.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="crypto_agent",
@@ -348,6 +470,19 @@ def main(argv: list[str] | None = None) -> int:
     closer.add_argument("--price", type=float, required=True)
     closer.add_argument("--note")
     closer.set_defaults(func=cmd_close)
+
+    diagnose = sub.add_parser(
+        "diagnose", help="What the logged scans say about the filters")
+    diagnose.add_argument("--horizon", type=int, default=4,
+                          help="How many scans ahead to measure (default 4)")
+    diagnose.set_defaults(func=cmd_diagnose)
+
+    replay = sub.add_parser(
+        "replay", help="Re-run archived scans under a changed setting")
+    replay.add_argument("--set", action="append", metavar="KEY=VALUE",
+                        help="e.g. filters.ichimoku_veto=false")
+    replay.add_argument("--config", **common)
+    replay.set_defaults(func=cmd_replay)
 
     status = sub.add_parser("status", help="Open positions and realised performance")
     status.add_argument("--price", action="append",

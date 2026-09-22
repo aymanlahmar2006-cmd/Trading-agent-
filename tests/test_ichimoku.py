@@ -146,3 +146,40 @@ def test_cloud_votes_carry_the_numbers_they_came_from():
     assert {"ichimoku_cloud", "ichimoku_tk", "ichimoku_cloud_colour"} <= kinds
     cloud_vote = next(v for v in result.votes if v.name == "ichimoku_cloud")
     assert "cloud" in cloud_vote.detail
+
+
+def test_the_cloud_weight_is_a_separate_lever_from_the_veto():
+    """Regression: turning the veto off freed nothing.
+
+    The cloud both vetoes and carries the heaviest vote, so a neutral
+    inside-cloud reading kept confidence below the bar even with the veto off.
+    A switch that does not do what its name says is worse than no switch.
+    """
+    bars = bars_from_path(BULLISH_PULLBACK, steps=14)
+    price = bars[-1]["close"]
+    payload = make_snapshot(bars, price, {
+        "RSI": 58.0, "MACD": 1.5, "Signal": 0.8,
+        "Conversion Line": price, "Base Line": price,
+        "Leading Span A": price + 4, "Leading Span B": price - 4,
+    }, [140.0])
+    snap = parse_snapshot(payload)
+
+    veto_off = {**CONFIG, "filters": {**CONFIG["filters"], "ichimoku_veto": False}}
+    blocked = analyse(snap, veto_off)
+    assert blocked.rejected_kind == "low_confidence", \
+        "the heavy neutral vote still suppresses it"
+
+    lowered = {**CONFIG, "filters": {**CONFIG["filters"],
+                                     "ichimoku_veto": False,
+                                     "ichimoku_weight": 0.25}}
+    freed = analyse(snap, lowered)
+    assert freed.actionable, "lowering the weight must actually free the setup"
+
+
+def test_the_weight_defaults_to_the_heaviest_input():
+    result = analyse(build(BULLISH_PULLBACK,
+                           {"RSI": 56.0, "MACD": 1.2, "Signal": 0.7},
+                           pine_lines=[126.0], steps=14), CONFIG)
+    cloud = next(v for v in result.votes if v.name == "ichimoku_cloud")
+    others = [v.weight for v in result.votes if v.name != "ichimoku_cloud"]
+    assert cloud.weight == 2.0 and cloud.weight > max(others)
